@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#23262B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Asbury Parking">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Asbury St Parking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <style>
+  :root{
+    --asphalt: #23262B;
+    --asphalt-soft: #33373E;
+    --chalk: #FAF9F6;
+    --putty: #ECE8DE;
+    --line-yellow: #F2B705;
+    --vest-orange: #E85D04;
+    --vest-orange-dark: #C24B02;
+    --pine: #1E5631;
+    --pine-soft: #E6F0E9;
+    --cashapp-blue: #1E88A8;
+    --cashapp-soft: #E1F1F5;
+    --venmo-blue: #3D5AF1;
+    --venmo-soft: #E7EAFD;
+    --hairline: #D8D2C2;
+    --text-dim: #6B6558;
+    --lawn: #E3ECDF;
+    --lawn-line: #C9D8C4;
+    --house-fill: #D9D2C0;
+    --house-line: #ABA089;
+    --pond-fill: #C6DEE8;
+    --pond-line: #8FB9CC;
+    --tree-fill: #86A876;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{margin:0; padding:0; background:var(--putty); color:var(--asphalt); font-family:'Inter',system-ui,sans-serif;}
+  body{
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(35,38,43,0.06) 1px, transparent 0);
+    background-size: 14px 14px;
+    padding-bottom: 40px;
+  }
+  .num{font-family:'Barlow Condensed',sans-serif; font-weight:700;}
+
+  header{
+    background: var(--asphalt);
+    color: var(--chalk);
+    padding: 18px 16px 16px;
+    position: sticky; top:0; z-index: 20;
+    border-bottom: 4px solid var(--line-yellow);
+  }
+  .brand{
+    display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:12px;
+  }
+  .brand-mark{
+    font-family:'Barlow Condensed'; font-weight:700; font-size:1.55rem; letter-spacing:0.01em;
+  }
+  .sign-out-btn{
+    background:none; border:none; color:#B9B4A4; font-size:0.7rem; text-decoration:underline; padding:2px;
+  }
+
+  .auth-page{
+    position:fixed; inset:0; background: var(--asphalt); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+    opacity:0; pointer-events:none; transition: opacity 0.15s ease;
+  }
+  .auth-page.open{ opacity:1; pointer-events:auto; }
+  .auth-card{
+    background: var(--chalk); border-radius:16px; padding:26px 22px; width:100%; max-width:340px;
+    border-top: 4px solid var(--line-yellow);
+  }
+  .auth-title{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.4rem; margin-bottom:4px; }
+  .auth-sub{ font-size:0.82rem; color:var(--text-dim); margin-bottom:18px; }
+  .auth-error{ color:#B3261E; font-size:0.8rem; margin-top:10px; text-align:center; }
+
+  .date-row{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  .date-nav{ display:flex; align-items:center; gap:10px; }
+  .date-nav button{
+    background: var(--asphalt-soft); color: var(--chalk); border:none; width:34px; height:34px; border-radius:8px;
+    font-size:1.1rem; display:flex; align-items:center; justify-content:center;
+  }
+  .date-label{ display:flex; flex-direction:column; align-items:center; min-width:128px; }
+  .date-day{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.05rem; line-height:1.15; }
+  .date-sub{ font-size:0.66rem; color:#B9B4A4; line-height:1.2; }
+  .today-total{ text-align:right; }
+  .today-total .amt{ font-family:'Barlow Condensed'; font-size:1.9rem; font-weight:700; line-height:1; color: var(--line-yellow); }
+  .today-total .lbl{ font-size:0.68rem; color:#B9B4A4; text-transform:none; }
+
+  main{ padding: 16px; max-width: 620px; margin: 0 auto; }
+
+  .house-card{
+    background: var(--chalk);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 14px 14px 16px;
+    margin-bottom: 14px;
+  }
+  .house-head{
+    display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px;
+  }
+  .house-name{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.3rem; }
+  .house-sub{ font-size:0.74rem; color:var(--text-dim); }
+  .house-total{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.15rem; color:var(--pine); }
+
+  /* Diagram */
+  .diagram-wrap{
+    position:relative; width:100%; padding-top: 118%;
+    background: var(--lawn);
+    border: 1px solid var(--lawn-line);
+    border-radius: 12px; overflow:hidden;
+  }
+  .diagram-inner{ position:absolute; inset:0; }
+  .street-edge{
+    position:absolute; left:0; right:0; bottom:0; height:5%;
+    background: repeating-linear-gradient(90deg, var(--asphalt) 0 10%, #3A3D42 10% 20%);
+  }
+  .street-label{
+    position:absolute; left:50%; bottom:0.3%; transform:translateX(-50%);
+    font-size:0.55rem; color:#CFCABA; letter-spacing:0.06em; font-family:'Barlow Condensed'; font-weight:600;
+  }
+  .feature{
+    position:absolute; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Barlow Condensed'; font-weight:600; letter-spacing:0.02em;
+    color: var(--text-dim); font-size:0.62rem; text-align:center; line-height:1.05; padding:2px;
+  }
+  .feature.house{ background: var(--house-fill); border:1px solid var(--house-line); color:#6B6045; }
+  .feature.garage{ background: var(--house-fill); border:1px dashed var(--house-line); color:#6B6045; }
+  .feature.tree{ background: var(--tree-fill); border-radius:11px; color: #F3F7F0; }
+  .feature.pond{ background: var(--pond-fill); border:1px solid var(--pond-line); border-radius:11px; color:#3D6478; }
+  .feature.sidewalk{ background: repeating-linear-gradient(90deg, #DAD5C7 0 12%, #CFC9B8 12% 12.5%); border-top:1px solid #C3BCA9; border-bottom:1px solid #C3BCA9; color:#8B8570; font-size:0.5rem; letter-spacing:0.08em; }
+
+  .spot{
+    position:absolute; transform: translate(-50%, -50%);
+    border-radius: 20px; border: 2px solid var(--asphalt);
+    background: var(--chalk);
+    padding: 5px 10px;
+    font-family:'Barlow Condensed'; font-weight:700; font-size:0.72rem;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    z-index: 5;
+  }
+  .spot .count-badge{
+    position:absolute; top:-8px; right:-8px;
+    background: var(--vest-orange); color:white;
+    font-family:'Inter'; font-weight:700; font-size:0.62rem;
+    min-width:16px; height:16px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center; padding:0 3px;
+    border: 2px solid var(--chalk);
+  }
+  .spot.used{ background: var(--pine-soft); border-color: var(--pine); color: var(--pine); }
+  .spot:active{ transform: translate(-50%,-50%) scale(0.94); }
+
+  .section-title{
+    font-family:'Barlow Condensed'; font-weight:600; font-size:1rem; letter-spacing:0.02em;
+    margin: 22px 0 10px 2px; color: var(--asphalt);
+  }
+
+  .summary-card{
+    background: var(--asphalt); color: var(--chalk);
+    border-radius: 14px; padding: 16px;
+    margin-bottom: 16px;
+  }
+  .summary-row{ display:flex; justify-content:space-between; padding:6px 0; font-size:0.88rem; }
+  .summary-row.total{ border-top:1px solid #454951; margin-top:6px; padding-top:10px; font-weight:700; font-size:1rem; }
+  .summary-row .v{ font-family:'Barlow Condensed'; font-weight:700; }
+  .pay-pill{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; }
+  .pill-cash{ background: var(--line-yellow); }
+  .pill-cashapp{ background: #48C9E5; }
+  .pill-venmo{ background: #8DA0FF; }
+
+  .log-empty{
+    text-align:center; color: var(--text-dim); font-size:0.88rem; padding: 22px 10px;
+    border:1px dashed var(--hairline); border-radius:12px; background:var(--chalk);
+  }
+  .log-item{
+    display:flex; align-items:center; gap:10px;
+    background: var(--chalk); border:1px solid var(--hairline); border-radius:12px;
+    padding:10px 12px; margin-bottom:8px;
+  }
+  .log-time{ font-family:'Barlow Condensed'; font-weight:700; font-size:0.92rem; width:52px; flex-shrink:0; }
+  .log-mid{ flex:1; min-width:0; }
+  .log-house{ font-size:0.7rem; color:var(--text-dim); }
+  .log-spot{ font-weight:600; font-size:0.88rem; }
+  .log-amt{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.1rem; }
+  .log-method{ font-size:0.64rem; padding:2px 7px; border-radius:20px; font-weight:600; margin-left:6px; }
+  .method-cash{ background:#FDF2CC; color:#8A6A00; }
+  .method-cashapp{ background: var(--cashapp-soft); color: var(--cashapp-blue); }
+  .method-venmo{ background: var(--venmo-soft); color: var(--venmo-blue); }
+  .log-del{ background:none; border:none; color:var(--text-dim); font-size:1.1rem; padding:4px 6px; }
+  .log-item{ cursor:pointer; }
+
+  .grand-total-btn{
+    width:100%; padding:15px 0; margin-top:8px; border:none; border-radius:12px;
+    background: var(--asphalt); color: var(--chalk); font-weight:700; font-size:0.95rem;
+  }
+
+  .delete-entry-btn{
+    width:100%; padding:10px 0; border:none; background:none; color:#B3261E; font-size:0.85rem; font-weight:600; margin-top:2px;
+  }
+
+  .adj-add-btn{
+    width:100%; padding:11px 0; border:2px dashed var(--hairline); border-radius:10px;
+    background:none; color:var(--text-dim); font-weight:600; font-size:0.85rem; margin-bottom:18px;
+  }
+
+  .net-card{ background: var(--pine); color:white; border-radius:14px; padding:16px; margin:8px 0 24px; }
+  .net-card.cash-card{ background: var(--asphalt); }
+  .net-row{ display:flex; justify-content:space-between; padding:5px 0; font-size:0.88rem; }
+  .net-row.net-total{ border-top:1px solid rgba(255,255,255,0.3); margin-top:8px; padding-top:10px; font-weight:700; font-size:1.15rem; font-family:'Barlow Condensed'; }
+
+  .totals-page{
+    position:fixed; inset:0; background:var(--putty); z-index:40;
+    transform: translateX(100%); transition: transform 0.22s ease; overflow-y:auto;
+  }
+  .totals-page.open{ transform: translateX(0); }
+  .totals-header{
+    position:sticky; top:0; background:var(--asphalt); color:var(--chalk); padding:16px;
+    display:flex; align-items:center; justify-content:space-between; border-bottom:4px solid var(--line-yellow); z-index:2;
+  }
+  .totals-header button{ background:none; border:none; color:var(--chalk); font-size:0.92rem; font-weight:600; padding:4px; }
+  .totals-title{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.2rem; }
+  .totals-main{ padding:16px; max-width:620px; margin:0 auto; }
+
+  .stats-sub{ font-size:0.72rem; font-weight:500; color:var(--text-dim); text-transform:none; letter-spacing:0; }
+  .stats-house-title{
+    font-family:'Barlow Condensed'; font-weight:600; font-size:0.88rem; color:var(--text-dim);
+    margin: 14px 0 6px 2px;
+  }
+  .stats-table-wrap{
+    background: var(--chalk); border:1px solid var(--hairline); border-radius:12px;
+    overflow:hidden;
+  }
+  .stats-table{ width:100%; border-collapse:collapse; font-size:0.74rem; }
+  .stats-table th{
+    background: var(--asphalt); color: var(--chalk); font-family:'Barlow Condensed'; font-weight:600;
+    font-size:0.68rem; text-transform:uppercase; letter-spacing:0.03em; padding:8px 6px; text-align:left;
+  }
+  .stats-table th:not(:first-child), .stats-table td:not(:first-child){ text-align:center; }
+  .stats-table td{ padding:8px 6px; border-top:1px solid var(--hairline); }
+  .stats-table td:first-child{ font-weight:600; }
+  .stats-table tbody tr:nth-child(even){ background: var(--putty); }
+
+  /* Modal */
+  .overlay{
+    position:fixed; inset:0; background:rgba(20,20,18,0.5); z-index:50;
+    display:flex; align-items:flex-end; justify-content:center;
+    opacity:0; pointer-events:none; transition: opacity 0.18s ease;
+  }
+  .overlay.open{ opacity:1; pointer-events:auto; }
+  .sheet{
+    background: var(--chalk); width:100%; max-width:620px;
+    border-radius: 20px 20px 0 0; padding: 18px 18px 24px;
+    transform: translateY(100%); transition: transform 0.22s ease;
+    max-height: 88vh; overflow-y:auto;
+  }
+  .overlay.open .sheet{ transform: translateY(0); }
+  .sheet-handle{ width:38px; height:4px; background:var(--hairline); border-radius:3px; margin: 0 auto 14px; }
+  .sheet-title{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.35rem; margin-bottom:2px; }
+  .sheet-sub{ font-size:0.8rem; color:var(--text-dim); margin-bottom:18px; }
+
+  .field-label{ font-size:0.76rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-dim); margin-bottom:8px; }
+  .amt-row{ display:flex; gap:8px; margin-bottom:16px; }
+  .amt-btn{
+    flex:1; padding:14px 0; border-radius:10px; border:2px solid var(--hairline);
+    background:var(--chalk); font-family:'Barlow Condensed'; font-weight:700; font-size:1.25rem;
+    color:var(--asphalt);
+  }
+  .amt-btn.selected{ border-color: var(--pine); background: var(--pine-soft); color:var(--pine); }
+  .custom-wrap{ margin-bottom:16px; }
+  .custom-input{
+    width:100%; padding:12px 14px; border-radius:10px; border:2px solid var(--hairline);
+    font-family:'Barlow Condensed'; font-weight:700; font-size:1.25rem; background:var(--chalk); color:var(--asphalt);
+  }
+  .custom-input:focus{ outline:none; border-color:var(--pine); }
+
+  .method-row{ display:flex; gap:8px; margin-bottom:16px; }
+  .method-btn{
+    flex:1; padding:12px 0; border-radius:10px; border:2px solid var(--hairline);
+    background:var(--chalk); font-weight:600; font-size:0.86rem; color:var(--asphalt);
+  }
+  .method-btn.selected.m-cash{ border-color:#B98A00; background:#FDF2CC; color:#8A6A00; }
+  .method-btn.selected.m-cashapp{ border-color: var(--cashapp-blue); background: var(--cashapp-soft); color: var(--cashapp-blue); }
+  .method-btn.selected.m-venmo{ border-color: var(--venmo-blue); background: var(--venmo-soft); color: var(--venmo-blue); }
+
+  .time-input{
+    width:100%; padding:12px 14px; border-radius:10px; border:2px solid var(--hairline);
+    font-size:1rem; margin-bottom:18px; background:var(--chalk); color:var(--asphalt); font-family:'Inter';
+  }
+
+  .log-btn{
+    width:100%; padding:15px 0; border:none; border-radius:12px;
+    background: var(--vest-orange); color:white; font-weight:700; font-size:1rem;
+  }
+  .log-btn:active{ background: var(--vest-orange-dark); }
+  .cancel-btn{
+    width:100%; padding:12px 0; border:none; background:none; color:var(--text-dim); font-size:0.88rem; margin-top:10px;
+  }
+
+  .toast{
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%) translateY(20px);
+    background: var(--pine); color:white; padding:10px 18px; border-radius:30px;
+    font-size:0.88rem; font-weight:600; z-index:60; opacity:0; transition: all 0.25s ease; pointer-events:none;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="auth-page open" id="authPage">
+  <div class="auth-card">
+    <div class="auth-title">Asbury St Parking</div>
+    <div class="auth-sub">Enter the password to continue</div>
+    <input type="password" id="authPassword" class="custom-input" placeholder="Password" autocomplete="current-password" style="margin-bottom:14px;">
+    <button class="log-btn" id="authSubmit">Unlock</button>
+    <div class="auth-error" id="authError" style="display:none;"></div>
+  </div>
+</div>
+
+<header>
+  <div class="brand">
+    <span class="brand-mark">Asbury St Parking</span>
+    <button id="signOutBtn" class="sign-out-btn">Sign out</button>
+  </div>
+  <div class="date-row">
+    <div class="date-nav">
+      <button id="prevDay">‹</button>
+      <span class="date-label">
+        <span class="date-day" id="dateDay">—</span>
+        <span class="date-sub" id="dateSub"></span>
+      </span>
+      <button id="nextDay">›</button>
+    </div>
+    <div class="today-total">
+      <div class="amt" id="dayTotal">$0</div>
+      <div class="lbl">today's total</div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="house-card">
+    <div class="house-head">
+      <div>
+        <div class="house-name">1367 Asbury</div>
+        <div class="house-sub">8 spots</div>
+      </div>
+      <div class="house-total" id="house1367Total">$0</div>
+    </div>
+    <div class="diagram-wrap" id="diagram1367">
+      <div class="diagram-inner">
+        <div class="street-edge"></div>
+        <div class="street-label">STREET</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="house-card">
+    <div class="house-head">
+      <div>
+        <div class="house-name">1372 Asbury</div>
+        <div class="house-sub">7 spots</div>
+      </div>
+      <div class="house-total" id="house1372Total">$0</div>
+    </div>
+    <div class="diagram-wrap" id="diagram1372">
+      <div class="diagram-inner">
+        <div class="street-edge"></div>
+        <div class="street-label">STREET</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Summary</div>
+  <div class="summary-card" id="summaryCard"></div>
+
+  <div class="section-title">Today's Log</div>
+  <div id="logList"></div>
+
+  <button class="grand-total-btn" id="grandTotalBtn">View Grand Total →</button>
+</main>
+
+<div class="totals-page" id="totalsPage">
+  <div class="totals-header">
+    <button id="totalsBack">‹ Back</button>
+    <span class="totals-title">Grand Total</span>
+    <span style="width:44px;"></span>
+  </div>
+  <div class="totals-main" id="totalsMain"></div>
+</div>
+
+<div class="overlay" id="adjOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="adjSheetTitle">Add Deposit</div>
+
+    <div class="field-label">Amount</div>
+    <div class="custom-wrap">
+      <input type="number" inputmode="decimal" class="custom-input" id="adjAmt" placeholder="$ amount">
+    </div>
+
+    <div class="field-label">Date</div>
+    <input type="date" class="time-input" id="adjDate">
+
+    <div class="field-label">Note (optional)</div>
+    <input type="text" class="time-input" id="adjNote" placeholder="e.g. Wells Fargo branch">
+
+    <button class="log-btn" id="adjSaveBtn">Save</button>
+    <button class="delete-entry-btn" id="adjDeleteBtn" style="display:none;">Delete this entry</button>
+    <button class="cancel-btn" id="adjCancelBtn">Cancel</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheetTitle">Spot</div>
+    <div class="sheet-sub" id="sheetSub"></div>
+
+    <div class="field-label">Amount</div>
+    <div class="amt-row" id="amtRow">
+      <button class="amt-btn" data-amt="40">$40</button>
+      <button class="amt-btn" data-amt="30">$30</button>
+      <button class="amt-btn" data-amt="20">$20</button>
+      <button class="amt-btn" data-amt="custom">Other</button>
+    </div>
+    <div class="custom-wrap" id="customWrap" style="display:none;">
+      <input type="number" inputmode="decimal" class="custom-input" id="customAmt" placeholder="$ amount">
+    </div>
+
+    <div class="field-label">Payment method</div>
+    <div class="method-row" id="methodRow">
+      <button class="method-btn m-cash" data-method="cash">Cash</button>
+      <button class="method-btn m-cashapp" data-method="cashapp">Cash App</button>
+      <button class="method-btn m-venmo" data-method="venmo">Venmo</button>
+    </div>
+
+    <div class="field-label">Time</div>
+    <input type="time" class="time-input" id="timeInput">
+
+    <button class="log-btn" id="logBtn">Log payment</button>
+    <button class="delete-entry-btn" id="deleteEntryBtn" style="display:none;">Delete this entry</button>
+    <button class="cancel-btn" id="cancelBtn">Cancel</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   SHARED CLOUD STORAGE (Firebase Realtime Database)
+   Fill in the config below with your own free Firebase project so that
+   you and your wife both read/write the same data. See the setup
+   instructions that came with this file for how to get these values.
+   ========================================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyC_UCV6K487dkB6PRt-3IQxFRNNVnSEcF0",
+  authDomain: "bsmith-family-parking.firebaseapp.com",
+  databaseURL: "https://bsmith-family-parking-default-rtdb.firebaseio.com",
+  projectId: "bsmith-family-parking",
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
+/* The app is protected by a single shared password. This email is just a
+   fixed account identifier for Firebase Auth — it isn't secret, only the
+   password is. See SETUP-SHARED-DATA.md for how to create this account. */
+const APP_LOGIN_EMAIL = "family@asbury-parking.app";
+
+/* Coordinate system per house diagram: x/y in percent, y=0 is the back of the
+   property, y=100 is the street (front). Features are decorative context;
+   spots are the tappable markers. */
+const HOUSES = {
+  '1367': {
+    name: '1367 Asbury',
+    features: [
+      { type:'garage', label:'Garage', x:22, y:6, w:56, h:16 },
+      { type:'house',  label:'House',  x:24, y:32, w:52, h:34 },
+      { type:'tree',   label:'',       x:8,  y:12, w:14, h:12 },
+      { type:'pond',   label:'',       x:46, y:26, w:14, h:12 },
+      { type:'tree',   label:'',       x:82, y:70, w:14, h:12 },
+      { type:'sidewalk', label:'SIDEWALK', x:0, y:87, w:100, h:7 }
+    ],
+    spots: [
+      { id:'garage1', label:'Garage 1', full:'Garage 1 (right)', x:60, y:14 },
+      { id:'garage2', label:'Garage 2', full:'Garage 2 (left)',  x:38, y:14 },
+      { id:'backtree', label:'Back Tree', full:'Back Tree (left side of garage)', x:10, y:17 },
+      { id:'backpond', label:'Back Pond', full:'Back Pond (between garage & house)', x:52, y:28 },
+      { id:'birdfeeder', label:'Birdfeeder', full:'Back Birdfeeder (left side of back of house)', x:16, y:40 },
+      { id:'genesis', label:'Front Genesis', full:'Front Genesis (in front of the house)', x:15, y:74 },
+      { id:'frontsteps', label:'Front Steps', full:'Front Steps (dead center, in front of the steps)', x:41, y:76 },
+      { id:'fronttruck', label:'Front Truck', full:'Front Truck (right of the front steps)', x:69, y:76 }
+    ]
+  },
+  '1372': {
+    name: '1372 Asbury',
+    features: [
+      { type:'garage', label:'Garage', x:29, y:6, w:40, h:18 },
+      { type:'house',  label:'House',  x:22, y:38, w:52, h:32 }
+    ],
+    spots: [
+      { id:'backgarden', label:'Back Garden', full:'Back Garden (right below the garage)', x:49, y:27 },
+      { id:'backtruck', label:'Back Truck', full:'Back Truck (between back garden & the house)', x:44, y:36 },
+      { id:'backdavid', label:'Back David', full:'Back David (back right corner of house)', x:78, y:41 },
+      { id:'fronttruck', label:'Front Truck', full:'Front Truck (front, far left)', x:14, y:85 },
+      { id:'frontbush', label:'Front Bush', full:'Front Bush', x:38, y:85 },
+      { id:'frontsteps', label:'Front Steps', full:'Front Steps', x:62, y:85 },
+      { id:'frontdavid', label:'Front David', full:'Front David (front, far right)', x:86, y:85 }
+    ]
+  }
+};
+
+const FAIR_START = new Date(2026, 7, 27); // Aug 27, 2026
+const FAIR_END = new Date(2026, 8, 7);    // Sep 7, 2026 (Labor Day)
+
+let currentDate = new Date();
+let dayData = []; // transactions for the visible day
+let activeSpot = null; // {house, spotId}
+let selectedAmt = 40;
+let selectedMethod = 'cash';
+let editingId = null; // id of the log entry currently being edited, or null for a new entry
+let adjEditingId = null;
+let adjType = 'deposit';
+
+function dateKey(d){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function fairDayNumber(d){
+  const start = new Date(FAIR_START.getFullYear(), FAIR_START.getMonth(), FAIR_START.getDate());
+  const cur = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((cur - start) / 86400000) + 1;
+}
+function fairDayLabel(d){
+  const n = fairDayNumber(d);
+  if(n >= 1 && n <= 12) return `Day ${n}`;
+  return n < 1 ? 'Pre-Fair' : 'Post-Fair';
+}
+function dateSubLabel(d){
+  const today = new Date();
+  const isToday = dateKey(d) === dateKey(today);
+  const opts = { weekday:'short', month:'short', day:'numeric' };
+  return d.toLocaleDateString('en-US', opts) + (isToday ? ' · Today' : '');
+}
+function money(n){ return '$' + Math.round(n).toLocaleString(); }
+function timeStrToLabel(t){
+  const [h,m] = t.split(':').map(Number);
+  const period = h>=12 ? 'p' : 'a';
+  let h12 = h % 12; if(h12===0) h12=12;
+  return `${h12}:${String(m).padStart(2,'0')}${period}`;
+}
+function nowTimeStr(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function spotById(houseId, spotId){
+  return HOUSES[houseId].spots.find(s => s.id === spotId);
+}
+
+async function loadDay(){
+  const key = dateKey(currentDate);
+  try{
+    const snap = await db.ref('days/' + key).get();
+    dayData = snap.exists() ? Object.values(snap.val()) : [];
+  }catch(e){
+    dayData = [];
+  }
+  render();
+}
+
+async function saveDay(){
+  const key = dateKey(currentDate);
+  try{
+    const obj = {};
+    dayData.forEach(tx => { obj[tx.id] = tx; });
+    await db.ref('days/' + key).set(obj);
+  }catch(e){
+    showToast('Could not save — check your connection');
+  }
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=> t.classList.remove('show'), 1600);
+}
+
+function buildDiagrams(){
+  for(const houseId of Object.keys(HOUSES)){
+    const wrap = document.getElementById('diagram'+houseId);
+    const inner = wrap.querySelector('.diagram-inner');
+    const house = HOUSES[houseId];
+
+    for(const f of house.features){
+      const el = document.createElement('div');
+      el.className = 'feature ' + f.type;
+      el.style.left = f.x + '%';
+      el.style.top = f.y + '%';
+      el.style.width = f.w + '%';
+      el.style.height = f.h + '%';
+      el.textContent = f.label;
+      inner.appendChild(el);
+    }
+    for(const s of house.spots){
+      const btn = document.createElement('button');
+      btn.className = 'spot';
+      btn.dataset.house = houseId;
+      btn.dataset.spot = s.id;
+      btn.style.left = s.x + '%';
+      btn.style.top = s.y + '%';
+      btn.innerHTML = `<span class="lbl">${s.label}</span>`;
+      btn.addEventListener('click', ()=> openSheet(houseId, s.id));
+      inner.appendChild(btn);
+    }
+  }
+}
+
+function render(){
+  document.getElementById('dateDay').textContent = fairDayLabel(currentDate);
+  document.getElementById('dateSub').textContent = dateSubLabel(currentDate);
+
+  const houseTotals = { '1367':0, '1372':0 };
+  const spotCounts = {};
+  const methodTotals = { cash:0, cashapp:0, venmo:0 };
+  let dayTotal = 0;
+
+  for(const tx of dayData){
+    houseTotals[tx.house] = (houseTotals[tx.house]||0) + tx.amount;
+    methodTotals[tx.method] = (methodTotals[tx.method]||0) + tx.amount;
+    dayTotal += tx.amount;
+    const sk = tx.house+'-'+tx.spot;
+    spotCounts[sk] = (spotCounts[sk]||0) + 1;
+  }
+
+  document.getElementById('dayTotal').textContent = money(dayTotal);
+  document.getElementById('house1367Total').textContent = money(houseTotals['1367']);
+  document.getElementById('house1372Total').textContent = money(houseTotals['1372']);
+
+  document.querySelectorAll('.spot').forEach(el=>{
+    const sk = el.dataset.house + '-' + el.dataset.spot;
+    const count = spotCounts[sk] || 0;
+    el.classList.toggle('used', count>0);
+    const existingBadge = el.querySelector('.count-badge');
+    if(existingBadge) existingBadge.remove();
+    if(count>0){
+      const badge = document.createElement('span');
+      badge.className = 'count-badge';
+      badge.textContent = count;
+      el.appendChild(badge);
+    }
+  });
+
+  const sc = document.getElementById('summaryCard');
+  sc.innerHTML = `
+    <div class="summary-row"><span>1367 Asbury</span><span class="v">${money(houseTotals['1367'])}</span></div>
+    <div class="summary-row"><span>1372 Asbury</span><span class="v">${money(houseTotals['1372'])}</span></div>
+    <div class="summary-row"><span><span class="pay-pill pill-cash"></span>Cash</span><span class="v">${money(methodTotals.cash)}</span></div>
+    <div class="summary-row"><span><span class="pay-pill pill-cashapp"></span>Cash App</span><span class="v">${money(methodTotals.cashapp)}</span></div>
+    <div class="summary-row"><span><span class="pay-pill pill-venmo"></span>Venmo</span><span class="v">${money(methodTotals.venmo)}</span></div>
+    <div class="summary-row total"><span>Total (${dayData.length} car${dayData.length===1?'':'s'})</span><span class="v">${money(dayTotal)}</span></div>
+  `;
+
+  const list = document.getElementById('logList');
+  if(dayData.length===0){
+    list.innerHTML = '<div class="log-empty">No spots logged yet today.</div>';
+    return;
+  }
+  const sorted = [...dayData].sort((a,b)=> a.time.localeCompare(b.time));
+  list.innerHTML = '';
+  for(const tx of sorted){
+    const spot = spotById(tx.house, tx.spot);
+    const row = document.createElement('div');
+    row.className = 'log-item';
+    row.innerHTML = `
+      <div class="log-time">${timeStrToLabel(tx.time)}</div>
+      <div class="log-mid">
+        <div class="log-house">${HOUSES[tx.house].name}</div>
+        <div class="log-spot">${spot ? spot.label : tx.spot}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="log-amt">${money(tx.amount)}</div>
+        <span class="log-method method-${tx.method}">${tx.method==='cashapp'?'Cash App':tx.method.charAt(0).toUpperCase()+tx.method.slice(1)}</span>
+      </div>
+      <button class="log-del" data-id="${tx.id}" title="Delete">✕</button>
+    `;
+    row.querySelector('.log-del').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      deleteTx(tx.id);
+    });
+    row.addEventListener('click', ()=> openSheet(tx.house, tx.spot, tx));
+    list.appendChild(row);
+  }
+}
+
+async function deleteTx(id){
+  dayData = dayData.filter(t => t.id !== id);
+  await saveDay();
+  render();
+  showToast('Entry removed');
+}
+
+function openSheet(houseId, spotId, existingTx=null){
+  activeSpot = { house: houseId, spot: spotId };
+  editingId = existingTx ? existingTx.id : null;
+  const spot = spotById(houseId, spotId);
+
+  if(existingTx){
+    selectedAmt = [40,30,20].includes(existingTx.amount) ? existingTx.amount : 'custom';
+    selectedMethod = existingTx.method;
+  } else {
+    selectedAmt = 40;
+    selectedMethod = 'cash';
+  }
+
+  document.getElementById('sheetTitle').textContent = `${HOUSES[houseId].name} — ${spot.label}`;
+  document.getElementById('sheetSub').textContent = spot.full;
+  document.getElementById('customWrap').style.display = selectedAmt === 'custom' ? 'block' : 'none';
+  document.getElementById('customAmt').value = selectedAmt === 'custom' ? existingTx.amount : '';
+  document.getElementById('timeInput').value = existingTx ? existingTx.time : nowTimeStr();
+  document.getElementById('logBtn').textContent = existingTx ? 'Save changes' : 'Log payment';
+  document.getElementById('deleteEntryBtn').style.display = existingTx ? 'block' : 'none';
+  updateAmtButtons();
+  updateMethodButtons();
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closeSheet(){
+  document.getElementById('overlay').classList.remove('open');
+  activeSpot = null;
+  editingId = null;
+}
+
+function updateAmtButtons(){
+  document.querySelectorAll('.amt-btn').forEach(b=>{
+    const isCustom = b.dataset.amt === 'custom';
+    const active = isCustom ? selectedAmt === 'custom' : Number(b.dataset.amt) === selectedAmt;
+    b.classList.toggle('selected', active);
+  });
+}
+function updateMethodButtons(){
+  document.querySelectorAll('.method-btn').forEach(b=>{
+    b.classList.toggle('selected', b.dataset.method === selectedMethod);
+  });
+}
+
+document.getElementById('amtRow').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.amt-btn');
+  if(!btn) return;
+  if(btn.dataset.amt === 'custom'){
+    selectedAmt = 'custom';
+    document.getElementById('customWrap').style.display = 'block';
+    document.getElementById('customAmt').focus();
+  } else {
+    selectedAmt = Number(btn.dataset.amt);
+    document.getElementById('customWrap').style.display = 'none';
+  }
+  updateAmtButtons();
+});
+
+document.getElementById('methodRow').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.method-btn');
+  if(!btn) return;
+  selectedMethod = btn.dataset.method;
+  updateMethodButtons();
+});
+
+document.getElementById('logBtn').addEventListener('click', async ()=>{
+  if(!activeSpot) return;
+  let amount = selectedAmt;
+  if(amount === 'custom'){
+    amount = parseFloat(document.getElementById('customAmt').value);
+    if(!amount || amount <= 0){
+      showToast('Enter a valid amount');
+      return;
+    }
+  }
+  const time = document.getElementById('timeInput').value || nowTimeStr();
+  const spot = spotById(activeSpot.house, activeSpot.spot);
+
+  if(editingId){
+    const idx = dayData.findIndex(t => t.id === editingId);
+    if(idx > -1){
+      dayData[idx] = { ...dayData[idx], amount, method: selectedMethod, time };
+    }
+    await saveDay();
+    render();
+    closeSheet();
+    showToast(`Updated — ${spot.label}`);
+  } else {
+    const tx = {
+      id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
+      house: activeSpot.house,
+      spot: activeSpot.spot,
+      amount: amount,
+      method: selectedMethod,
+      time: time
+    };
+    dayData.push(tx);
+    await saveDay();
+    render();
+    closeSheet();
+    showToast(`Logged $${amount} — ${spot.label}`);
+  }
+});
+
+document.getElementById('deleteEntryBtn').addEventListener('click', async ()=>{
+  if(!editingId) return;
+  await deleteTx(editingId);
+  closeSheet();
+});
+
+document.getElementById('cancelBtn').addEventListener('click', closeSheet);
+document.getElementById('overlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'overlay') closeSheet();
+});
+
+/* ---------- Grand Total / deposits & expenses / spot stats ---------- */
+
+async function fetchAllDays(){
+  // Returns { 'YYYY-MM-DD': [tx, tx, ...], ... }
+  try{
+    const snap = await db.ref('days').get();
+    if(!snap.exists()) return {};
+    const raw = snap.val();
+    const out = {};
+    for(const dateK in raw){
+      out[dateK] = Object.values(raw[dateK]);
+    }
+    return out;
+  }catch(e){
+    return {};
+  }
+}
+
+async function computeGrandTotals(allDays){
+  const houseTotals = { '1367':0, '1372':0 };
+  const methodTotals = { cash:0, cashapp:0, venmo:0 };
+  let grossTotal = 0, carCount = 0;
+  for(const dateK in allDays){
+    for(const tx of allDays[dateK]){
+      houseTotals[tx.house] = (houseTotals[tx.house]||0) + tx.amount;
+      methodTotals[tx.method] = (methodTotals[tx.method]||0) + tx.amount;
+      grossTotal += tx.amount;
+      carCount++;
+    }
+  }
+  return { houseTotals, methodTotals, grossTotal, carCount };
+}
+
+function timeDiffMinutes(t1, t2){
+  const [h1,m1] = t1.split(':').map(Number);
+  const [h2,m2] = t2.split(':').map(Number);
+  return (h2*60+m2) - (h1*60+m1);
+}
+function formatMinutes(mins){
+  if(mins === null) return '—';
+  const h = Math.floor(mins/60), m = Math.round(mins%60);
+  if(h===0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function computeSpotStats(allDays){
+  const dayKeys = Object.keys(allDays);
+  const numDays = dayKeys.length;
+
+  const stats = {};
+  for(const houseId of Object.keys(HOUSES)){
+    for(const s of HOUSES[houseId].spots){
+      stats[houseId+'-'+s.id] = { house:houseId, label:s.label, count:0, perDayCounts:{}, gaps:[] };
+    }
+  }
+
+  for(const dateK of dayKeys){
+    const bySpot = {};
+    for(const tx of allDays[dateK]){
+      const sk = tx.house + '-' + tx.spot;
+      if(!stats[sk]) continue;
+      stats[sk].count++;
+      stats[sk].perDayCounts[dateK] = (stats[sk].perDayCounts[dateK]||0) + 1;
+      (bySpot[sk] = bySpot[sk] || []).push(tx.time);
+    }
+    for(const sk in bySpot){
+      const times = bySpot[sk].slice().sort();
+      for(let i=1; i<times.length; i++){
+        const gap = timeDiffMinutes(times[i-1], times[i]);
+        if(gap >= 0) stats[sk].gaps.push(gap);
+      }
+    }
+  }
+
+  const result = { '1367':[], '1372':[] };
+  for(const sk in stats){
+    const st = stats[sk];
+    const maxDay = Object.values(st.perDayCounts).reduce((m,v)=>Math.max(m,v),0);
+    const avgPerDay = numDays>0 ? st.count/numDays : 0;
+    const avgGap = st.gaps.length>0 ? st.gaps.reduce((a,b)=>a+b,0)/st.gaps.length : null;
+    result[st.house].push({ label: st.label, count: st.count, avgPerDay, maxDay, avgGap });
+  }
+  return { byHouse: result, numDays };
+}
+
+async function loadAdjustments(){
+  try{
+    const snap = await db.ref('adjustments').get();
+    return snap.exists() ? Object.values(snap.val()) : [];
+  }catch(e){ return []; }
+}
+async function saveAdjustments(list){
+  try{
+    const obj = {};
+    list.forEach(a => { obj[a.id] = a; });
+    await db.ref('adjustments').set(obj);
+  }catch(e){
+    showToast('Could not save — check your connection');
+  }
+}
+
+async function renderTotalsPage(){
+  const allDays = await fetchAllDays();
+  const { houseTotals, methodTotals, grossTotal, carCount } = await computeGrandTotals(allDays);
+  const adjustments = await loadAdjustments();
+  const deposits = adjustments.filter(a => a.type === 'deposit');
+  const expenses = adjustments.filter(a => a.type === 'expense');
+  const depositTotal = deposits.reduce((s,a)=> s+a.amount, 0);
+  const expenseTotal = expenses.reduce((s,a)=> s+a.amount, 0);
+  const digitalTotal = methodTotals.cashapp + methodTotals.venmo;
+  const netIncome = grossTotal - expenseTotal;
+  const cashOnHand = netIncome - depositTotal - digitalTotal;
+  const { byHouse, numDays } = computeSpotStats(allDays);
+
+  const spotRows = (houseId) => byHouse[houseId].map(s => `
+    <tr>
+      <td>${s.label}</td>
+      <td>${s.count}</td>
+      <td>${s.avgPerDay.toFixed(1)}</td>
+      <td>${s.maxDay}</td>
+      <td>${formatMinutes(s.avgGap)}</td>
+    </tr>
+  `).join('');
+
+  const main = document.getElementById('totalsMain');
+  main.innerHTML = `
+    <div class="section-title" style="margin-top:0;">Fair-Wide Totals</div>
+    <div class="summary-card">
+      <div class="summary-row"><span>Gross Revenue (${carCount} car${carCount===1?'':'s'})</span><span class="v">${money(grossTotal)}</span></div>
+      <div class="summary-row"><span>1367 Asbury</span><span class="v">${money(houseTotals['1367'])}</span></div>
+      <div class="summary-row"><span>1372 Asbury</span><span class="v">${money(houseTotals['1372'])}</span></div>
+      <div class="summary-row"><span><span class="pay-pill pill-cash"></span>Cash</span><span class="v">${money(methodTotals.cash)}</span></div>
+      <div class="summary-row"><span><span class="pay-pill pill-cashapp"></span>Cash App</span><span class="v">${money(methodTotals.cashapp)}</span></div>
+      <div class="summary-row"><span><span class="pay-pill pill-venmo"></span>Venmo</span><span class="v">${money(methodTotals.venmo)}</span></div>
+    </div>
+
+    <div class="section-title">Bank Deposits</div>
+    <div id="depositsList"></div>
+    <button class="adj-add-btn" data-type="deposit">+ Add deposit</button>
+
+    <div class="section-title">Fair Expenses</div>
+    <div id="expensesList"></div>
+    <button class="adj-add-btn" data-type="expense">+ Add expense</button>
+
+    <div class="net-card">
+      <div class="net-row"><span>Gross revenue</span><span>${money(grossTotal)}</span></div>
+      <div class="net-row"><span>– Fair expenses</span><span>-${money(expenseTotal)}</span></div>
+      <div class="net-row net-total"><span>Net income</span><span>${money(netIncome)}</span></div>
+    </div>
+
+    <div class="net-card cash-card">
+      <div class="net-row"><span>Net income</span><span>${money(netIncome)}</span></div>
+      <div class="net-row"><span>– Bank deposits</span><span>-${money(depositTotal)}</span></div>
+      <div class="net-row"><span>– Digital receipts (Cash App + Venmo)</span><span>-${money(digitalTotal)}</span></div>
+      <div class="net-row net-total"><span>Cash on hand</span><span>${money(cashOnHand)}</span></div>
+    </div>
+
+    <div class="section-title">Spot Performance <span class="stats-sub">(${numDays} day${numDays===1?'':'s'} logged)</span></div>
+
+    <div class="stats-house-title">1367 Asbury</div>
+    <div class="stats-table-wrap">
+      <table class="stats-table">
+        <thead><tr><th>Spot</th><th>Times</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
+        <tbody>${spotRows('1367')}</tbody>
+      </table>
+    </div>
+
+    <div class="stats-house-title">1372 Asbury</div>
+    <div class="stats-table-wrap" style="margin-bottom:24px;">
+      <table class="stats-table">
+        <thead><tr><th>Spot</th><th>Times</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
+        <tbody>${spotRows('1372')}</tbody>
+      </table>
+    </div>
+  `;
+
+  populateAdjList('depositsList', deposits);
+  populateAdjList('expensesList', expenses);
+
+  main.querySelectorAll('.adj-add-btn').forEach(b=>{
+    b.addEventListener('click', ()=> openAdjSheet(b.dataset.type));
+  });
+}
+
+function populateAdjList(containerId, items){
+  const el = document.getElementById(containerId);
+  if(items.length === 0){
+    el.innerHTML = '<div class="log-empty">None logged yet.</div>';
+    return;
+  }
+  const sorted = [...items].sort((a,b)=> a.date.localeCompare(b.date));
+  el.innerHTML = '';
+  for(const a of sorted){
+    const row = document.createElement('div');
+    row.className = 'log-item';
+    row.innerHTML = `
+      <div class="log-mid">
+        <div class="log-house">${a.date}</div>
+        <div class="log-spot">${a.note ? a.note : (a.type==='deposit' ? 'Bank deposit' : 'Fair expense')}</div>
+      </div>
+      <div class="log-amt">${money(a.amount)}</div>
+      <button class="log-del" data-id="${a.id}" title="Delete">✕</button>
+    `;
+    row.querySelector('.log-del').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      deleteAdjustment(a.id);
+    });
+    row.addEventListener('click', ()=> openAdjSheet(a.type, a));
+    el.appendChild(row);
+  }
+}
+
+async function deleteAdjustment(id){
+  let list = await loadAdjustments();
+  list = list.filter(a => a.id !== id);
+  await saveAdjustments(list);
+  await renderTotalsPage();
+  showToast('Entry removed');
+}
+
+function openAdjSheet(type, existing=null){
+  adjType = type;
+  adjEditingId = existing ? existing.id : null;
+  document.getElementById('adjSheetTitle').textContent = existing
+    ? `Edit ${type==='deposit' ? 'Deposit' : 'Expense'}`
+    : `Add ${type==='deposit' ? 'Deposit' : 'Expense'}`;
+  document.getElementById('adjAmt').value = existing ? existing.amount : '';
+  document.getElementById('adjDate').value = existing ? existing.date : dateKey(new Date());
+  document.getElementById('adjNote').value = existing ? (existing.note || '') : '';
+  document.getElementById('adjDeleteBtn').style.display = existing ? 'block' : 'none';
+  document.getElementById('adjOverlay').classList.add('open');
+}
+function closeAdjSheet(){
+  document.getElementById('adjOverlay').classList.remove('open');
+  adjEditingId = null;
+}
+
+document.getElementById('adjSaveBtn').addEventListener('click', async ()=>{
+  const amount = parseFloat(document.getElementById('adjAmt').value);
+  if(!amount || amount <= 0){
+    showToast('Enter a valid amount');
+    return;
+  }
+  const date = document.getElementById('adjDate').value || dateKey(new Date());
+  const note = document.getElementById('adjNote').value.trim();
+  let list = await loadAdjustments();
+  if(adjEditingId){
+    const idx = list.findIndex(a => a.id === adjEditingId);
+    if(idx > -1) list[idx] = { ...list[idx], amount, date, note };
+  } else {
+    list.push({ id: Date.now()+'-'+Math.random().toString(36).slice(2,7), type: adjType, amount, date, note });
+  }
+  await saveAdjustments(list);
+  closeAdjSheet();
+  await renderTotalsPage();
+  showToast('Saved');
+});
+document.getElementById('adjDeleteBtn').addEventListener('click', async ()=>{
+  if(!adjEditingId) return;
+  await deleteAdjustment(adjEditingId);
+  closeAdjSheet();
+});
+document.getElementById('adjCancelBtn').addEventListener('click', closeAdjSheet);
+document.getElementById('adjOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'adjOverlay') closeAdjSheet();
+});
+
+document.getElementById('grandTotalBtn').addEventListener('click', async ()=>{
+  document.getElementById('totalsMain').innerHTML = '<div class="log-empty">Loading…</div>';
+  document.getElementById('totalsPage').classList.add('open');
+  await renderTotalsPage();
+});
+document.getElementById('totalsBack').addEventListener('click', ()=>{
+  document.getElementById('totalsPage').classList.remove('open');
+});
+
+document.getElementById('prevDay').addEventListener('click', ()=>{
+  currentDate.setDate(currentDate.getDate()-1);
+  loadDay();
+});
+document.getElementById('nextDay').addEventListener('click', ()=>{
+  currentDate.setDate(currentDate.getDate()+1);
+  loadDay();
+});
+
+/* ---------- One-time migration: bring existing on-device data into Firebase ---------- */
+async function migrateLocalDataIfNeeded(){
+  if(localStorage.getItem('firebaseMigrated')) return;
+  try{
+    const remoteSnap = await db.ref('days').get();
+    const remoteHasData = remoteSnap.exists();
+
+    if(!remoteHasData){
+      const updates = {};
+      let foundAny = false;
+
+      for(let i=0; i<localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(k && k.startsWith('day:')){
+          const dateK = k.slice(4);
+          let arr = [];
+          try{ arr = JSON.parse(localStorage.getItem(k)) || []; }catch(e){}
+          if(arr.length){
+            const obj = {};
+            arr.forEach(tx => { obj[tx.id] = tx; });
+            updates['days/' + dateK] = obj;
+            foundAny = true;
+          }
+        }
+      }
+
+      const adjRaw = localStorage.getItem('adjustments');
+      if(adjRaw){
+        try{
+          const adjArr = JSON.parse(adjRaw) || [];
+          if(adjArr.length){
+            const obj = {};
+            adjArr.forEach(a => { obj[a.id] = a; });
+            updates['adjustments'] = obj;
+            foundAny = true;
+          }
+        }catch(e){}
+      }
+
+      if(foundAny){
+        await db.ref().update(updates);
+        showToast('Existing data moved to shared storage');
+      }
+    }
+    localStorage.setItem('firebaseMigrated', '1');
+  }catch(e){
+    // Likely offline or Firebase not configured yet — leave the flag unset
+    // so migration is retried automatically on a future successful load.
+  }
+}
+
+/* ---------- Password gate (Firebase Authentication) ---------- */
+
+let appInitialized = false;
+
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+
+auth.onAuthStateChanged((user)=>{
+  const authPage = document.getElementById('authPage');
+  if(user){
+    authPage.classList.remove('open');
+    if(!appInitialized){
+      appInitialized = true;
+      buildDiagrams();
+      migrateLocalDataIfNeeded().then(loadDay);
+    }
+  } else {
+    authPage.classList.add('open');
+  }
+});
+
+async function attemptLogin(){
+  const pw = document.getElementById('authPassword').value;
+  const errEl = document.getElementById('authError');
+  errEl.style.display = 'none';
+  if(!pw){ return; }
+  try{
+    await auth.signInWithEmailAndPassword(APP_LOGIN_EMAIL, pw);
+    document.getElementById('authPassword').value = '';
+  }catch(e){
+    errEl.textContent = 'Incorrect password. Try again.';
+    errEl.style.display = 'block';
+  }
+}
+
+document.getElementById('authSubmit').addEventListener('click', attemptLogin);
+document.getElementById('authPassword').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') attemptLogin();
+});
+document.getElementById('signOutBtn').addEventListener('click', ()=>{
+  auth.signOut();
+});
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+
+</script>
+</body>
+</html>
