@@ -15,7 +15,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <style>
+<style>
   :root{
     --asphalt: #23262B;
     --asphalt-soft: #33373E;
@@ -229,6 +229,7 @@
     display:flex; align-items:center; justify-content:space-between; border-bottom:4px solid var(--line-yellow); z-index:2;
   }
   .totals-header button{ background:none; border:none; color:var(--chalk); font-size:0.92rem; font-weight:600; padding:4px; }
+  #importBtn{ font-size:0.78rem; text-decoration:underline; color:#CFCABA; }
   .totals-title{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.2rem; }
   .totals-main{ padding:16px; max-width:620px; margin:0 auto; }
 
@@ -394,9 +395,20 @@
   <div class="totals-header">
     <button id="totalsBack">‹ Back</button>
     <span class="totals-title">Grand Total</span>
-    <span style="width:44px;"></span>
+    <button id="importBtn">Import</button>
   </div>
   <div class="totals-main" id="totalsMain"></div>
+</div>
+
+<div class="overlay" id="importOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Import Legacy Data</div>
+    <div class="sheet-sub">Paste the JSON you exported from your old app's browser console below. Existing data on any matching day will be merged, not replaced.</div>
+    <textarea id="importText" class="custom-input" style="width:100%; height:150px; font-family:monospace; font-size:0.78rem; resize:vertical;" placeholder='{"day:2026-08-27":[...], "adjustments":[...]}'></textarea>
+    <button class="log-btn" id="importSaveBtn" style="margin-top:14px;">Import</button>
+    <button class="cancel-btn" id="importCancelBtn">Cancel</button>
+  </div>
 </div>
 
 <div class="overlay" id="adjOverlay">
@@ -464,10 +476,11 @@
    instructions that came with this file for how to get these values.
    ========================================================================= */
 const firebaseConfig = {
-  apiKey: "AIzaSyC_UCV6K487dkB6PRt-3IQxFRNNVnSEcF0",
-  authDomain: "bsmith-family-parking.firebaseapp.com",
-  databaseURL: "https://bsmith-family-parking-default-rtdb.firebaseio.com",
-  projectId: "bsmith-family-parking",
+  apiKey: "PASTE_YOUR_API_KEY_HERE",
+  authDomain: "PASTE_YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://PASTE_YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "PASTE_YOUR_PROJECT"
+};
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const auth = firebase.auth();
@@ -1099,6 +1112,73 @@ document.getElementById('grandTotalBtn').addEventListener('click', async ()=>{
 });
 document.getElementById('totalsBack').addEventListener('click', ()=>{
   document.getElementById('totalsPage').classList.remove('open');
+});
+
+/* ---------- Import legacy data (from a different site/origin) ---------- */
+
+async function importLegacyData(jsonText){
+  let parsed;
+  try{
+    parsed = JSON.parse(jsonText);
+  }catch(e){
+    throw new Error("That doesn't look like valid exported data.");
+  }
+
+  const updates = {};
+  let count = 0;
+
+  for(const key in parsed){
+    if(key.startsWith('day:')){
+      const dateK = key.slice(4);
+      const arr = parsed[key];
+      if(Array.isArray(arr) && arr.length){
+        const existingSnap = await db.ref('days/' + dateK).get();
+        const merged = existingSnap.exists() ? existingSnap.val() : {};
+        arr.forEach(tx => { merged[tx.id] = tx; count++; });
+        updates['days/' + dateK] = merged;
+      }
+    } else if(key === 'adjustments'){
+      const arr = parsed[key];
+      if(Array.isArray(arr) && arr.length){
+        const existingSnap = await db.ref('adjustments').get();
+        const merged = existingSnap.exists() ? existingSnap.val() : {};
+        arr.forEach(a => { merged[a.id] = a; count++; });
+        updates['adjustments'] = merged;
+      }
+    }
+  }
+
+  if(Object.keys(updates).length){
+    await db.ref().update(updates);
+  }
+  return count;
+}
+
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  document.getElementById('importText').value = '';
+  document.getElementById('importOverlay').classList.add('open');
+});
+document.getElementById('importCancelBtn').addEventListener('click', ()=>{
+  document.getElementById('importOverlay').classList.remove('open');
+});
+document.getElementById('importOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'importOverlay') document.getElementById('importOverlay').classList.remove('open');
+});
+document.getElementById('importSaveBtn').addEventListener('click', async ()=>{
+  const text = document.getElementById('importText').value.trim();
+  if(!text){
+    showToast('Paste your exported data first');
+    return;
+  }
+  try{
+    const count = await importLegacyData(text);
+    document.getElementById('importOverlay').classList.remove('open');
+    showToast(`Imported ${count} entr${count===1?'y':'ies'}`);
+    await renderTotalsPage();
+    await loadDay();
+  }catch(e){
+    showToast(e.message || 'Could not import that data');
+  }
 });
 
 document.getElementById('prevDay').addEventListener('click', ()=>{
