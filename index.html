@@ -321,7 +321,7 @@
 <div class="auth-page open" id="authPage">
   <div class="auth-card">
     <div class="auth-title">Asbury St Parking</div>
-    <div class="auth-sub">Enter the password to continue</div>
+    <div class="auth-sub" id="authSub">Enter the password to continue</div>
     <input type="password" id="authPassword" class="custom-input" placeholder="Password" autocomplete="current-password" style="margin-bottom:14px;">
     <button class="log-btn" id="authSubmit">Unlock</button>
     <div class="auth-error" id="authError" style="display:none;"></div>
@@ -481,9 +481,23 @@ const firebaseConfig = {
   databaseURL: "https://PASTE_YOUR_PROJECT-default-rtdb.firebaseio.com",
   projectId: "PASTE_YOUR_PROJECT"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const auth = firebase.auth();
+
+const CONFIG_IS_PLACEHOLDER = Object.values(firebaseConfig).some(
+  v => typeof v === 'string' && v.includes('PASTE_YOUR')
+);
+
+let db, auth, firebaseInitError = null;
+if(CONFIG_IS_PLACEHOLDER){
+  firebaseInitError = "firebaseConfig still has placeholder values — edit the PASTE_YOUR_... fields near the top of the <script> tag with your real Firebase project values.";
+} else {
+  try{
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+    auth = firebase.auth();
+  }catch(e){
+    firebaseInitError = "Firebase failed to start: " + e.message;
+  }
+}
 
 /* The app is protected by a single shared password. This email is just a
    fixed account identifier for Firebase Auth — it isn't secret, only the
@@ -1245,21 +1259,31 @@ async function migrateLocalDataIfNeeded(){
 
 let appInitialized = false;
 
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+if(firebaseInitError){
+  // Firebase never came up — show why, right on the lock screen, instead
+  // of silently doing nothing when the button is clicked.
+  document.getElementById('authSub').textContent = 'Setup problem — see message below.';
+  document.getElementById('authError').textContent = firebaseInitError;
+  document.getElementById('authError').style.display = 'block';
+  document.getElementById('authSubmit').disabled = true;
+  document.getElementById('authSubmit').style.opacity = '0.5';
+} else {
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
-auth.onAuthStateChanged((user)=>{
-  const authPage = document.getElementById('authPage');
-  if(user){
-    authPage.classList.remove('open');
-    if(!appInitialized){
-      appInitialized = true;
-      buildDiagrams();
-      migrateLocalDataIfNeeded().then(loadDay);
+  auth.onAuthStateChanged((user)=>{
+    const authPage = document.getElementById('authPage');
+    if(user){
+      authPage.classList.remove('open');
+      if(!appInitialized){
+        appInitialized = true;
+        buildDiagrams();
+        migrateLocalDataIfNeeded().then(loadDay);
+      }
+    } else {
+      authPage.classList.add('open');
     }
-  } else {
-    authPage.classList.add('open');
-  }
-});
+  });
+}
 
 async function attemptLogin(){
   const pw = document.getElementById('authPassword').value;
@@ -1270,7 +1294,7 @@ async function attemptLogin(){
     await auth.signInWithEmailAndPassword(APP_LOGIN_EMAIL, pw);
     document.getElementById('authPassword').value = '';
   }catch(e){
-    errEl.textContent = 'Incorrect password. Try again.';
+    errEl.textContent = e.message || 'Something went wrong. Try again.';
     errEl.style.display = 'block';
   }
 }
@@ -1280,7 +1304,7 @@ document.getElementById('authPassword').addEventListener('keydown', (e)=>{
   if(e.key === 'Enter') attemptLogin();
 });
 document.getElementById('signOutBtn').addEventListener('click', ()=>{
-  auth.signOut();
+  if(auth) auth.signOut();
 });
 
 if('serviceWorker' in navigator){
