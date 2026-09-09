@@ -160,8 +160,21 @@
     display:flex; align-items:center; justify-content:center; padding:0 3px;
     border: 2px solid var(--chalk);
   }
-  .spot.used{ background: var(--pine-soft); border-color: var(--pine); color: var(--pine); }
+  /* Live spot status for the day on screen. Empty stays the default white card. */
+  .spot.occ-unpaid{ background:#FAD9D5; border-color:#C0392B; color:#8E2A20; }
+  .spot.occ-paid{   background:#DFF3E2; border-color:#3F9D57; color:#1C5B31; }
+  .spot.occ-open{   background:#FBEDBE; border-color:#C99A12; color:#6F5300; }
   .spot:active{ transform: translate(-50%,-50%) scale(0.94); }
+
+  .legend{ display:flex; flex-wrap:wrap; gap:10px 14px; margin:12px 2px 0 2px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:0.68rem; color:var(--text-dim); }
+  .legend-swatch{
+    width:14px; height:14px; border-radius:4px;
+    border:2px solid var(--asphalt); background:var(--chalk);
+  }
+  .legend-swatch.occ-unpaid{ background:#FAD9D5; border-color:#C0392B; }
+  .legend-swatch.occ-paid{ background:#DFF3E2; border-color:#3F9D57; }
+  .legend-swatch.occ-open{ background:#FBEDBE; border-color:#C99A12; }
 
   .section-title{
     font-family:'Barlow Condensed'; font-weight:600; font-size:1rem; letter-spacing:0.02em;
@@ -404,6 +417,14 @@
   <div class="section-title">Summary</div>
   <div class="summary-card" id="summaryCard"></div>
 
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch"></span>Empty</div>
+    <div class="legend-item"><span class="legend-swatch occ-unpaid"></span>Car here, not paid</div>
+    <div class="legend-item"><span class="legend-swatch occ-paid"></span>Car here, paid</div>
+    <div class="legend-item"><span class="legend-swatch occ-open"></span>Left, open again</div>
+  </div>
+  <div class="stats-sub" style="display:block; margin:8px 2px 0 2px;">Tap a spot to log a payment. Press and hold to change its status — everyone's phone updates within a second.</div>
+
   <div class="section-title">Today's Log</div>
   <div id="logList"></div>
 
@@ -635,6 +656,18 @@ let adjEditingId = null;
 let adjType = 'deposit';
 let totalsYear = null; // which year the Grand Total page is showing: 'YYYY' or 'all'
 
+/* Live spot status for the day on screen, shared through Firebase so every
+   phone shows the same yard. Absent from the map means empty. */
+let occupancy = {};
+let occupancyRef = null;
+const OCC_ORDER = ['empty', 'unpaid', 'paid', 'open'];
+const OCC_LABEL = {
+  empty:  'Empty',
+  unpaid: 'Car here \u2014 not paid',
+  paid:   'Car here \u2014 paid',
+  open:   'Left \u2014 open again'
+};
+
 function dateKey(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
@@ -678,6 +711,7 @@ let dayLoadOk = false;
 
 async function loadDay(){
   const key = dateKey(currentDate);
+  watchOccupancy();
   try{
     const snap = await db.ref('days/' + key).get();
     dayData = snap.exists() ? Object.values(snap.val()) : [];
@@ -738,10 +772,93 @@ function buildDiagrams(){
       btn.style.left = s.x + '%';
       btn.style.top = s.y + '%';
       btn.innerHTML = `<span class="lbl">${s.label}</span>`;
-      btn.addEventListener('click', ()=> openSheet(houseId, s.id));
+      btn.addEventListener('click', ()=>{
+        // A long press also fires a click on release; ignore that one.
+        if(btn.dataset.suppressClick === '1'){ btn.dataset.suppressClick = ''; return; }
+        openSheet(houseId, s.id);
+      });
+      attachLongPress(btn, ()=> cycleOccupancy(houseId + '-' + s.id));
       inner.appendChild(btn);
     }
   }
+}
+
+/* ---------- Live spot status ---------- */
+
+function attachLongPress(el, fn){
+  let timer = null;
+  const start = ()=>{
+    clearTimeout(timer);
+    timer = setTimeout(()=>{
+      el.dataset.suppressClick = '1';
+      fn();
+    }, 500);
+  };
+  const cancel = ()=> clearTimeout(timer);
+  el.addEventListener('pointerdown', start);
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('pointercancel', cancel);
+  el.addEventListener('contextmenu', (e)=> e.preventDefault());
+}
+
+/* Firebase pushes changes over an open connection, so there is nothing to
+   poll — the other phones recolour as soon as this writes. */
+function watchOccupancy(){
+  if(occupancyRef){ occupancyRef.off(); occupancyRef = null; }
+  occupancy = {};
+  if(!db) return;
+  const ref = db.ref('occupancy/' + dateKey(currentDate));
+  occupancyRef = ref;
+  ref.on('value', (snap)=>{
+    if(occupancyRef !== ref) return;   // the day changed while this was in flight
+    occupancy = (snap.exists() && snap.val()) ? snap.val() : {};
+    paintSpots();
+  }, ()=>{ /* offline or signed out - leave the colours as they are */ });
+}
+
+async function setOccupancy(sk, state){
+  if(!db) return;
+  const path = 'occupancy/' + dateKey(currentDate) + '/' + sk;
+  try{
+    if(state === 'empty'){ await db.ref(path).remove(); }
+    else { await db.ref(path).set(state); }
+  }catch(e){
+    showToast('Could not update the spot \u2014 check your connection');
+  }
+}
+
+function cycleOccupancy(sk){
+  const current = occupancy[sk] || 'empty';
+  const next = OCC_ORDER[(OCC_ORDER.indexOf(current) + 1) % OCC_ORDER.length];
+  if(next === 'empty'){ delete occupancy[sk]; } else { occupancy[sk] = next; }
+  paintSpots();                 // immediate feedback; the listener confirms it
+  showToast(OCC_LABEL[next]);
+  setOccupancy(sk, next);
+}
+
+function paintSpots(){
+  const spotCounts = {};
+  for(const tx of dayData){
+    const sk = tx.house + '-' + tx.spot;
+    spotCounts[sk] = (spotCounts[sk] || 0) + 1;
+  }
+  document.querySelectorAll('.spot').forEach(el=>{
+    const sk = el.dataset.house + '-' + el.dataset.spot;
+    const state = occupancy[sk] || 'empty';
+    el.classList.toggle('occ-unpaid', state === 'unpaid');
+    el.classList.toggle('occ-paid',   state === 'paid');
+    el.classList.toggle('occ-open',   state === 'open');
+    const count = spotCounts[sk] || 0;
+    const existingBadge = el.querySelector('.count-badge');
+    if(existingBadge) existingBadge.remove();
+    if(count > 0){
+      const badge = document.createElement('span');
+      badge.className = 'count-badge';
+      badge.textContent = count;
+      el.appendChild(badge);
+    }
+  });
 }
 
 function render(){
@@ -749,7 +866,6 @@ function render(){
   document.getElementById('dateSub').textContent = dateSubLabel(currentDate);
 
   const houseTotals = { '1367':0, '1372':0 };
-  const spotCounts = {};
   const methodTotals = { cash:0, cashapp:0, venmo:0, square:0 };
   let dayTotal = 0;
 
@@ -757,27 +873,13 @@ function render(){
     houseTotals[tx.house] = (houseTotals[tx.house]||0) + tx.amount;
     methodTotals[tx.method] = (methodTotals[tx.method]||0) + tx.amount;
     dayTotal += tx.amount;
-    const sk = tx.house+'-'+tx.spot;
-    spotCounts[sk] = (spotCounts[sk]||0) + 1;
   }
 
   document.getElementById('dayTotal').textContent = money(dayTotal);
   document.getElementById('house1367Total').textContent = money(houseTotals['1367']);
   document.getElementById('house1372Total').textContent = money(houseTotals['1372']);
 
-  document.querySelectorAll('.spot').forEach(el=>{
-    const sk = el.dataset.house + '-' + el.dataset.spot;
-    const count = spotCounts[sk] || 0;
-    el.classList.toggle('used', count>0);
-    const existingBadge = el.querySelector('.count-badge');
-    if(existingBadge) existingBadge.remove();
-    if(count>0){
-      const badge = document.createElement('span');
-      badge.className = 'count-badge';
-      badge.textContent = count;
-      el.appendChild(badge);
-    }
-  });
+  paintSpots();
 
   const sc = document.getElementById('summaryCard');
   sc.innerHTML = `
@@ -908,6 +1010,7 @@ document.getElementById('logBtn').addEventListener('click', async ()=>{
   }
   const time = document.getElementById('timeInput').value || nowTimeStr();
   const spot = spotById(activeSpot.house, activeSpot.spot);
+  const sk = activeSpot.house + '-' + activeSpot.spot;   // captured before closeSheet clears activeSpot
 
   if(editingId){
     const idx = dayData.findIndex(t => t.id === editingId);
@@ -937,6 +1040,10 @@ document.getElementById('logBtn').addEventListener('click', async ()=>{
     if(!ok) dayData = dayData.filter(t => t.id !== tx.id);
     render();
     if(ok){
+      // Taking payment means the spot is filled and paid — no extra tap needed.
+      occupancy[sk] = 'paid';
+      paintSpots();
+      setOccupancy(sk, 'paid');
       closeSheet();
       showToast(`Logged $${amount} — ${spot.label}`);
     }
