@@ -30,6 +30,8 @@
     --cashapp-soft: #E1F1F5;
     --venmo-blue: #3D5AF1;
     --venmo-soft: #E7EAFD;
+    --square-ink: #2F3037;
+    --square-soft: #E9E9ED;
     --hairline: #D8D2C2;
     --text-dim: #6B6558;
     --lawn: #E3ECDF;
@@ -178,6 +180,7 @@
   .pill-cash{ background: var(--line-yellow); }
   .pill-cashapp{ background: #48C9E5; }
   .pill-venmo{ background: #8DA0FF; }
+  .pill-square{ background: #6E6F7A; }
 
   .log-empty{
     text-align:center; color: var(--text-dim); font-size:0.88rem; padding: 22px 10px;
@@ -197,6 +200,7 @@
   .method-cash{ background:#FDF2CC; color:#8A6A00; }
   .method-cashapp{ background: var(--cashapp-soft); color: var(--cashapp-blue); }
   .method-venmo{ background: var(--venmo-soft); color: var(--venmo-blue); }
+  .method-square{ background: var(--square-soft); color: var(--square-ink); }
   .log-del{ background:none; border:none; color:var(--text-dim); font-size:1.1rem; padding:4px 6px; }
   .log-item{ cursor:pointer; }
 
@@ -240,17 +244,23 @@
   }
   .stats-table-wrap{
     background: var(--chalk); border:1px solid var(--hairline); border-radius:12px;
-    overflow:hidden;
+    overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;
   }
   .stats-table{ width:100%; border-collapse:collapse; font-size:0.74rem; }
   .stats-table th{
     background: var(--asphalt); color: var(--chalk); font-family:'Barlow Condensed'; font-weight:600;
     font-size:0.68rem; text-transform:uppercase; letter-spacing:0.03em; padding:8px 6px; text-align:left;
+    white-space:nowrap;
   }
   .stats-table th:not(:first-child), .stats-table td:not(:first-child){ text-align:center; }
-  .stats-table td{ padding:8px 6px; border-top:1px solid var(--hairline); }
+  .stats-table td{ padding:8px 6px; border-top:1px solid var(--hairline); white-space:nowrap; }
   .stats-table td:first-child{ font-weight:600; }
   .stats-table tbody tr:nth-child(even){ background: var(--putty); }
+  /* Keep the spot name visible while the extra columns scroll sideways. */
+  .stats-table th:first-child, .stats-table td:first-child{ position:sticky; left:0; z-index:1; }
+  .stats-table th:first-child{ background: var(--asphalt); }
+  .stats-table td:first-child{ background: var(--chalk); }
+  .stats-table tbody tr:nth-child(even) td:first-child{ background: var(--putty); }
 
   /* Modal */
   .overlay{
@@ -285,14 +295,15 @@
   }
   .custom-input:focus{ outline:none; border-color:var(--pine); }
 
-  .method-row{ display:flex; gap:8px; margin-bottom:16px; }
+  .method-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
   .method-btn{
-    flex:1; padding:12px 0; border-radius:10px; border:2px solid var(--hairline);
-    background:var(--chalk); font-weight:600; font-size:0.86rem; color:var(--asphalt);
+    flex:1 1 0; min-width:70px; padding:12px 4px; border-radius:10px; border:2px solid var(--hairline);
+    background:var(--chalk); font-weight:600; font-size:0.82rem; color:var(--asphalt); white-space:nowrap;
   }
   .method-btn.selected.m-cash{ border-color:#B98A00; background:#FDF2CC; color:#8A6A00; }
   .method-btn.selected.m-cashapp{ border-color: var(--cashapp-blue); background: var(--cashapp-soft); color: var(--cashapp-blue); }
   .method-btn.selected.m-venmo{ border-color: var(--venmo-blue); background: var(--venmo-soft); color: var(--venmo-blue); }
+  .method-btn.selected.m-square{ border-color: var(--square-ink); background: var(--square-soft); color: var(--square-ink); }
 
   .time-input{
     width:100%; padding:12px 14px; border-radius:10px; border:2px solid var(--hairline);
@@ -455,6 +466,7 @@
       <button class="method-btn m-cash" data-method="cash">Cash</button>
       <button class="method-btn m-cashapp" data-method="cashapp">Cash App</button>
       <button class="method-btn m-venmo" data-method="venmo">Venmo</button>
+      <button class="method-btn m-square" data-method="square">Square</button>
     </div>
 
     <div class="field-label">Time</div>
@@ -674,7 +686,7 @@ function render(){
 
   const houseTotals = { '1367':0, '1372':0 };
   const spotCounts = {};
-  const methodTotals = { cash:0, cashapp:0, venmo:0 };
+  const methodTotals = { cash:0, cashapp:0, venmo:0, square:0 };
   let dayTotal = 0;
 
   for(const tx of dayData){
@@ -710,6 +722,7 @@ function render(){
     <div class="summary-row"><span><span class="pay-pill pill-cash"></span>Cash</span><span class="v">${money(methodTotals.cash)}</span></div>
     <div class="summary-row"><span><span class="pay-pill pill-cashapp"></span>Cash App</span><span class="v">${money(methodTotals.cashapp)}</span></div>
     <div class="summary-row"><span><span class="pay-pill pill-venmo"></span>Venmo</span><span class="v">${money(methodTotals.venmo)}</span></div>
+    <div class="summary-row"><span><span class="pay-pill pill-square"></span>Square</span><span class="v">${money(methodTotals.square)}</span></div>
     <div class="summary-row total"><span>Total (${dayData.length} car${dayData.length===1?'':'s'})</span><span class="v">${money(dayTotal)}</span></div>
   `;
 
@@ -897,7 +910,7 @@ async function fetchAllDays(){
 
 async function computeGrandTotals(allDays){
   const houseTotals = { '1367':0, '1372':0 };
-  const methodTotals = { cash:0, cashapp:0, venmo:0 };
+  const methodTotals = { cash:0, cashapp:0, venmo:0, square:0 };
   let grossTotal = 0, carCount = 0;
   for(const dateK in allDays){
     for(const tx of allDays[dateK]){
@@ -929,7 +942,7 @@ function computeSpotStats(allDays){
   const stats = {};
   for(const houseId of Object.keys(HOUSES)){
     for(const s of HOUSES[houseId].spots){
-      stats[houseId+'-'+s.id] = { house:houseId, label:s.label, count:0, perDayCounts:{}, gaps:[] };
+      stats[houseId+'-'+s.id] = { house:houseId, label:s.label, count:0, revenue:0, perDayCounts:{}, gaps:[] };
     }
   }
 
@@ -939,6 +952,7 @@ function computeSpotStats(allDays){
       const sk = tx.house + '-' + tx.spot;
       if(!stats[sk]) continue;
       stats[sk].count++;
+      stats[sk].revenue += (tx.amount || 0);
       stats[sk].perDayCounts[dateK] = (stats[sk].perDayCounts[dateK]||0) + 1;
       (bySpot[sk] = bySpot[sk] || []).push(tx.time);
     }
@@ -957,7 +971,8 @@ function computeSpotStats(allDays){
     const maxDay = Object.values(st.perDayCounts).reduce((m,v)=>Math.max(m,v),0);
     const avgPerDay = numDays>0 ? st.count/numDays : 0;
     const avgGap = st.gaps.length>0 ? st.gaps.reduce((a,b)=>a+b,0)/st.gaps.length : null;
-    result[st.house].push({ label: st.label, count: st.count, avgPerDay, maxDay, avgGap });
+    const perCar = st.count>0 ? st.revenue/st.count : null;
+    result[st.house].push({ label: st.label, count: st.count, revenue: st.revenue, perCar, avgPerDay, maxDay, avgGap });
   }
   return { byHouse: result, numDays };
 }
@@ -1000,7 +1015,7 @@ async function renderTotalsPage(){
   const expenses = adjustments.filter(a => a.type === 'expense');
   const depositTotal = deposits.reduce((s,a)=> s+a.amount, 0);
   const expenseTotal = expenses.reduce((s,a)=> s+a.amount, 0);
-  const digitalTotal = methodTotals.cashapp + methodTotals.venmo;
+  const digitalTotal = methodTotals.cashapp + methodTotals.venmo + methodTotals.square;
   const netIncome = grossTotal - expenseTotal;
   const cashOnHand = netIncome - depositTotal - digitalTotal;
   const { byHouse, numDays } = computeSpotStats(allDays);
@@ -1009,6 +1024,8 @@ async function renderTotalsPage(){
     <tr>
       <td>${s.label}</td>
       <td>${s.count}</td>
+      <td>${money(s.revenue)}</td>
+      <td>${s.perCar === null ? '—' : money(s.perCar)}</td>
       <td>${s.avgPerDay.toFixed(1)}</td>
       <td>${s.maxDay}</td>
       <td>${formatMinutes(s.avgGap)}</td>
@@ -1025,6 +1042,7 @@ async function renderTotalsPage(){
       <div class="summary-row"><span><span class="pay-pill pill-cash"></span>Cash</span><span class="v">${money(methodTotals.cash)}</span></div>
       <div class="summary-row"><span><span class="pay-pill pill-cashapp"></span>Cash App</span><span class="v">${money(methodTotals.cashapp)}</span></div>
       <div class="summary-row"><span><span class="pay-pill pill-venmo"></span>Venmo</span><span class="v">${money(methodTotals.venmo)}</span></div>
+      <div class="summary-row"><span><span class="pay-pill pill-square"></span>Square</span><span class="v">${money(methodTotals.square)}</span></div>
     </div>
 
     <div class="section-title">Bank Deposits</div>
@@ -1044,16 +1062,17 @@ async function renderTotalsPage(){
     <div class="net-card cash-card">
       <div class="net-row"><span>Net income</span><span>${money(netIncome)}</span></div>
       <div class="net-row"><span>– Bank deposits</span><span>-${money(depositTotal)}</span></div>
-      <div class="net-row"><span>– Digital receipts (Cash App + Venmo)</span><span>-${money(digitalTotal)}</span></div>
+      <div class="net-row"><span>– Digital receipts (Cash App + Venmo + Square)</span><span>-${money(digitalTotal)}</span></div>
       <div class="net-row net-total"><span>Cash on hand</span><span>${money(cashOnHand)}</span></div>
     </div>
 
     <div class="section-title">Spot Performance <span class="stats-sub">(${numDays} day${numDays===1?'':'s'} logged)</span></div>
+    <div class="stats-sub" style="display:block; margin:-4px 2px 8px 2px;">Avg Gap is the average time between cars in the same spot on the same day. Scroll the table sideways for more columns.</div>
 
     <div class="stats-house-title">1367 Asbury</div>
     <div class="stats-table-wrap">
       <table class="stats-table">
-        <thead><tr><th>Spot</th><th>Times</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
+        <thead><tr><th>Spot</th><th>Cars</th><th>Total</th><th>$/Car</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
         <tbody>${spotRows('1367')}</tbody>
       </table>
     </div>
@@ -1061,7 +1080,7 @@ async function renderTotalsPage(){
     <div class="stats-house-title">1372 Asbury</div>
     <div class="stats-table-wrap" style="margin-bottom:24px;">
       <table class="stats-table">
-        <thead><tr><th>Spot</th><th>Times</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
+        <thead><tr><th>Spot</th><th>Cars</th><th>Total</th><th>$/Car</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
         <tbody>${spotRows('1372')}</tbody>
       </table>
     </div>
