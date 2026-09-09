@@ -237,6 +237,14 @@
   .totals-title{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.2rem; }
   .totals-main{ padding:16px; max-width:620px; margin:0 auto; }
 
+  .year-tabs{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .year-tab{
+    flex:0 0 auto; padding:7px 15px; border-radius:20px; border:2px solid var(--hairline);
+    background:var(--chalk); font-family:'Barlow Condensed'; font-weight:700; font-size:0.95rem;
+    color:var(--text-dim); white-space:nowrap;
+  }
+  .year-tab.selected{ border-color: var(--vest-orange); background:#FDECE0; color: var(--vest-orange-dark); }
+
   .stats-sub{ font-size:0.72rem; font-weight:500; color:var(--text-dim); text-transform:none; letter-spacing:0; }
   .stats-house-title{
     font-family:'Barlow Condensed'; font-weight:600; font-size:0.88rem; color:var(--text-dim);
@@ -570,6 +578,7 @@ let selectedMethod = 'cash';
 let editingId = null; // id of the log entry currently being edited, or null for a new entry
 let adjEditingId = null;
 let adjType = 'deposit';
+let totalsYear = null; // which year the Grand Total page is showing: 'YYYY' or 'all'
 
 function dateKey(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
@@ -1007,10 +1016,44 @@ async function saveAdjustments(list){
   }
 }
 
+function yearOf(dateStr){ return String(dateStr || '').slice(0,4); }
+
 async function renderTotalsPage(){
-  const allDays = await fetchAllDays();
+  const allDaysRaw = await fetchAllDays();
+  const allAdjustments = await loadAdjustments();
+
+  /* Every record is stored under its own date, so the list of years builds
+     itself — 2027 appears on its own the first time anything is logged in
+     2027. Nothing needs changing each year. */
+  const years = [...new Set([
+    ...Object.keys(allDaysRaw).map(yearOf),
+    ...allAdjustments.map(a => yearOf(a.date))
+  ])].filter(y => /^\d{4}$/.test(y)).sort();
+
+  if(years.length === 0) years.push(String(new Date().getFullYear()));
+
+  if(totalsYear !== 'all' && !years.includes(totalsYear)){
+    const thisYear = String(new Date().getFullYear());
+    totalsYear = years.includes(thisYear) ? thisYear : years[years.length - 1];
+  }
+
+  const inScope = (dateStr) => totalsYear === 'all' || yearOf(dateStr) === totalsYear;
+  const allDays = {};
+  for(const k in allDaysRaw){ if(inScope(k)) allDays[k] = allDaysRaw[k]; }
+  const adjustments = allAdjustments.filter(a => inScope(a.date));
+
+  const scopeLabel = totalsYear === 'all' ? 'All Years' : totalsYear;
+  document.querySelector('.totals-title').textContent =
+    totalsYear === 'all' ? 'Grand Total · All' : `Grand Total ${totalsYear}`;
+
+  // Tabs only appear once there is more than one year of data.
+  const tabYears = years.length > 1 ? [...years, 'all'] : [];
+  const yearTabs = tabYears.length ? `
+    <div class="year-tabs">
+      ${tabYears.map(y => `<button class="year-tab${y === totalsYear ? ' selected' : ''}" data-year="${y}">${y === 'all' ? 'All Years' : y}</button>`).join('')}
+    </div>` : '';
+
   const { houseTotals, methodTotals, grossTotal, carCount } = await computeGrandTotals(allDays);
-  const adjustments = await loadAdjustments();
   const deposits = adjustments.filter(a => a.type === 'deposit');
   const expenses = adjustments.filter(a => a.type === 'expense');
   const depositTotal = deposits.reduce((s,a)=> s+a.amount, 0);
@@ -1034,7 +1077,8 @@ async function renderTotalsPage(){
 
   const main = document.getElementById('totalsMain');
   main.innerHTML = `
-    <div class="section-title" style="margin-top:0;">Fair-Wide Totals</div>
+    ${yearTabs}
+    <div class="section-title" style="margin-top:0;">${scopeLabel} Totals</div>
     <div class="summary-card">
       <div class="summary-row"><span>Gross Revenue (${carCount} car${carCount===1?'':'s'})</span><span class="v">${money(grossTotal)}</span></div>
       <div class="summary-row"><span>1367 Asbury</span><span class="v">${money(houseTotals['1367'])}</span></div>
@@ -1088,6 +1132,13 @@ async function renderTotalsPage(){
 
   populateAdjList('depositsList', deposits);
   populateAdjList('expensesList', expenses);
+
+  main.querySelectorAll('.year-tab').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      totalsYear = b.dataset.year;
+      await renderTotalsPage();
+    });
+  });
 
   main.querySelectorAll('.adj-add-btn').forEach(b=>{
     b.addEventListener('click', ()=> openAdjSheet(b.dataset.type));
@@ -1188,6 +1239,7 @@ document.getElementById('adjOverlay').addEventListener('click', (e)=>{
 });
 
 document.getElementById('grandTotalBtn').addEventListener('click', async ()=>{
+  totalsYear = null; // always open on the current year
   document.getElementById('totalsMain').innerHTML = '<div class="log-empty">Loading…</div>';
   document.getElementById('totalsPage').classList.add('open');
   await renderTotalsPage();
