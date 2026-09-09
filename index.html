@@ -524,6 +524,61 @@ try{
    password is. See SETUP-SHARED-DATA.md for how to create this account. */
 const APP_LOGIN_EMAIL = "family@asbury-parking.app";
 
+/* =========================================================================
+   MINNESOTA STATE FAIR DAILY ATTENDANCE
+   Published at https://www.mnstatefair.org/about/attendance after each fair.
+   These live here because the phone cannot fetch the fair's site directly
+   (it blocks cross-site requests from other pages).
+
+   TO ADD NEXT YEAR: copy that year's column off the page above and paste a
+   new block below, one line per day, oldest first. The fair always runs 12
+   days, Thursday through Labor Day Monday. Nothing else needs changing --
+   the Daily Performance table picks up new years automatically.
+   ========================================================================= */
+const FAIR_ATTENDANCE = {
+  /* 2026 fair - Aug 27 to Sep 7, total 1,923,325 */
+  '2026-08-27': 155185,   // Thu
+  '2026-08-28': 204065,   // Fri
+  '2026-08-29': 198842,   // Sat
+  '2026-08-30': 171054,   // Sun
+  '2026-08-31': 124519,   // Mon
+  '2026-09-01': 112836,   // Tue
+  '2026-09-02': 117150,   // Wed
+  '2026-09-03': 107159,   // Thu
+  '2026-09-04': 155204,   // Fri
+  '2026-09-05': 217929,   // Sat
+  '2026-09-06': 200281,   // Sun
+  '2026-09-07': 159101,   // Mon
+
+  /* 2025 fair - Aug 21 to Sep 1, total 1,940,869 */
+  '2025-08-21': 137148,   // Thu
+  '2025-08-22': 153988,   // Fri
+  '2025-08-23': 198863,   // Sat
+  '2025-08-24': 184176,   // Sun
+  '2025-08-25': 145022,   // Mon
+  '2025-08-26': 132553,   // Tue
+  '2025-08-27': 114932,   // Wed
+  '2025-08-28': 125924,   // Thu
+  '2025-08-29': 180520,   // Fri
+  '2025-08-30': 222800,   // Sat
+  '2025-08-31': 194501,   // Sun
+  '2025-09-01': 150442,   // Mon
+
+  /* 2024 fair - Aug 22 to Sep 2, total 1,925,904 */
+  '2024-08-22': 138875,   // Thu
+  '2024-08-23': 171233,   // Fri
+  '2024-08-24': 184564,   // Sat
+  '2024-08-25': 134644,   // Sun
+  '2024-08-26': 80546,    // Mon
+  '2024-08-27': 124777,   // Tue
+  '2024-08-28': 145531,   // Wed
+  '2024-08-29': 81231,    // Thu
+  '2024-08-30': 225521,   // Fri
+  '2024-08-31': 207078,   // Sat
+  '2024-09-01': 256015,   // Sun
+  '2024-09-02': 175889    // Mon
+};
+
 /* Coordinate system per house diagram: x/y in percent, y=0 is the back of the
    property, y=100 is the street (front). Features are decorative context;
    spots are the tappable markers. */
@@ -986,6 +1041,61 @@ function computeSpotStats(allDays){
   return { byHouse: result, numDays };
 }
 
+/* ---------- Daily performance vs fair attendance ---------- */
+
+function dateFromKey(k){
+  const [y,m,d] = k.split('-').map(Number);
+  return new Date(y, m-1, d);   // built locally: 'new Date("2026-08-27")' would be UTC and can land a day early
+}
+function shortDayLabel(k){
+  return dateFromKey(k).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+}
+
+/* Score of 100 means the day brought in exactly the revenue its share of the
+   crowd predicted. Above 100 beat the crowd, below 100 lagged it.
+
+     score = (day revenue / avg daily revenue) / (day attendance / avg daily attendance) x 100
+
+   Averages are taken over the days that have BOTH revenue and a published
+   attendance figure, so a day the yards were closed cannot drag the baseline
+   down. Each day is scored against its own year. */
+function computeDailyPerformance(allDays){
+  const rows = Object.keys(allDays).sort().map(dateK => {
+    const txs = allDays[dateK] || [];
+    return {
+      dateK,
+      cars: txs.length,
+      revenue: txs.reduce((s,tx)=> s + (tx.amount||0), 0),
+      attendance: Object.prototype.hasOwnProperty.call(FAIR_ATTENDANCE, dateK) ? FAIR_ATTENDANCE[dateK] : null,
+      score: null
+    };
+  });
+
+  const byYear = {};
+  for(const r of rows){
+    if(r.attendance === null || r.revenue <= 0) continue;
+    const y = r.dateK.slice(0,4);
+    (byYear[y] = byYear[y] || []).push(r);
+  }
+  for(const y in byYear){
+    const g = byYear[y];
+    const avgRev = g.reduce((s,r)=> s + r.revenue, 0) / g.length;
+    const avgAtt = g.reduce((s,r)=> s + r.attendance, 0) / g.length;
+    if(avgRev <= 0 || avgAtt <= 0) continue;
+    for(const r of g){
+      const raw = 100 * (r.revenue / avgRev) / (r.attendance / avgAtt);
+      r.score = Math.max(0, Math.min(200, Math.round(raw)));
+    }
+  }
+  return rows;
+}
+
+/* 0 = red, 100 = amber, 200 = green. */
+function scoreStyle(score){
+  const hue = Math.max(0, Math.min(120, score * 0.6));
+  return `background: hsl(${hue}, 72%, 86%); color: hsl(${hue}, 78%, 24%); font-weight:700;`;
+}
+
 /* Same protection as dayLoadOk above: saving adjustments replaces the whole
    list, so a failed load must never be treated as "there are none." */
 let adjustmentsLoadOk = false;
@@ -1063,6 +1173,25 @@ async function renderTotalsPage(){
   const cashOnHand = netIncome - depositTotal - digitalTotal;
   const { byHouse, numDays } = computeSpotStats(allDays);
 
+  const perf = computeDailyPerformance(allDays);
+  const perfRows = perf.map(r => `
+    <tr>
+      <td>${shortDayLabel(r.dateK)}</td>
+      <td>${r.cars}</td>
+      <td>${money(r.revenue)}</td>
+      <td>${r.attendance === null ? '—' : r.attendance.toLocaleString()}</td>
+      <td${r.score === null ? '' : ` style="${scoreStyle(r.score)}"`}>${r.score === null ? '—' : r.score}</td>
+    </tr>
+  `).join('');
+  const perfTable = perf.length === 0
+    ? '<div class="log-empty">No days logged yet.</div>'
+    : `<div class="stats-table-wrap" style="margin-bottom:24px;">
+      <table class="stats-table">
+        <thead><tr><th>Day</th><th>Cars</th><th>Revenue</th><th>Attendance</th><th>Score</th></tr></thead>
+        <tbody>${perfRows}</tbody>
+      </table>
+    </div>`;
+
   const spotRows = (houseId) => byHouse[houseId].map(s => `
     <tr>
       <td>${s.label}</td>
@@ -1128,6 +1257,12 @@ async function renderTotalsPage(){
         <tbody>${spotRows('1372')}</tbody>
       </table>
     </div>
+
+    <div class="section-title">Daily Performance</div>
+    <div class="stats-sub" style="display:block; margin:-4px 2px 8px 2px;">
+      How each day's takings compared with State Fair attendance. 100 means the day earned exactly what its share of the crowd predicted — green beat the crowd, red lagged it. A dash means no attendance figure is on file for that date.
+    </div>
+    ${perfTable}
   `;
 
   populateAdjList('depositsList', deposits);
