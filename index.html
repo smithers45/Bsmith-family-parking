@@ -479,7 +479,24 @@ const firebaseConfig = {
   apiKey: "AIzaSyC_UCV6K487dkB6PRt-3IQxFRNNVnSEcF0",
   authDomain: "bsmith-family-parking.firebaseapp.com",
   databaseURL: "https://bsmith-family-parking-default-rtdb.firebaseio.com",
-  projectId: "bsmith-family-parking";
+  projectId: "bsmith-family-parking"
+};
+
+/* Start Firebase. If anything goes wrong — bad config, or the SDK blocked by
+   a flaky connection — record why, so the lock screen can show the reason
+   instead of silently doing nothing when Unlock is tapped. */
+let firebaseInitError = null;
+let auth = null;
+let db = null;
+try{
+  if(typeof firebase === 'undefined'){
+    throw new Error('Could not reach Firebase. Check your internet connection and reload.');
+  }
+  firebase.initializeApp(firebaseConfig);
+  auth = firebase.auth();
+  db = firebase.database();
+}catch(e){
+  firebaseInitError = e.message || 'Firebase could not start.';
 }
 
 /* The app is protected by a single shared password. This email is just a
@@ -577,25 +594,40 @@ function spotById(houseId, spotId){
   return HOUSES[houseId].spots.find(s => s.id === spotId);
 }
 
+/* Did the day currently on screen actually come back from the database?
+   Saving REPLACES the whole day, so if a load failed we must refuse to save —
+   otherwise an empty screen caused by a dropped connection would overwrite
+   real records with whatever was entered next. */
+let dayLoadOk = false;
+
 async function loadDay(){
   const key = dateKey(currentDate);
   try{
     const snap = await db.ref('days/' + key).get();
     dayData = snap.exists() ? Object.values(snap.val()) : [];
+    dayLoadOk = true;
   }catch(e){
     dayData = [];
+    dayLoadOk = false;
+    showToast('Could not load this day — check your connection');
   }
   render();
 }
 
 async function saveDay(){
+  if(!dayLoadOk){
+    showToast('NOT SAVED — this day never loaded. Reconnect, then reload.');
+    return false;
+  }
   const key = dateKey(currentDate);
   try{
     const obj = {};
     dayData.forEach(tx => { obj[tx.id] = tx; });
     await db.ref('days/' + key).set(obj);
+    return true;
   }catch(e){
-    showToast('Could not save — check your connection');
+    showToast('NOT SAVED — check your connection and try again.');
+    return false;
   }
 }
 
@@ -714,10 +746,12 @@ function render(){
 }
 
 async function deleteTx(id){
+  const before = dayData;
   dayData = dayData.filter(t => t.id !== id);
-  await saveDay();
+  const ok = await saveDay();
+  if(!ok) dayData = before;
   render();
-  showToast('Entry removed');
+  if(ok) showToast('Entry removed');
 }
 
 function openSheet(houseId, spotId, existingTx=null){
@@ -800,13 +834,18 @@ document.getElementById('logBtn').addEventListener('click', async ()=>{
 
   if(editingId){
     const idx = dayData.findIndex(t => t.id === editingId);
+    const before = idx > -1 ? dayData[idx] : null;
     if(idx > -1){
       dayData[idx] = { ...dayData[idx], amount, method: selectedMethod, time };
     }
-    await saveDay();
+    const ok = await saveDay();
+    if(!ok && idx > -1) dayData[idx] = before;
     render();
-    closeSheet();
-    showToast(`Updated — ${spot.label}`);
+    // On failure keep the sheet open so the entry isn't lost and can be retried.
+    if(ok){
+      closeSheet();
+      showToast(`Updated — ${spot.label}`);
+    }
   } else {
     const tx = {
       id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
@@ -817,10 +856,13 @@ document.getElementById('logBtn').addEventListener('click', async ()=>{
       time: time
     };
     dayData.push(tx);
-    await saveDay();
+    const ok = await saveDay();
+    if(!ok) dayData = dayData.filter(t => t.id !== tx.id);
     render();
-    closeSheet();
-    showToast(`Logged $${amount} — ${spot.label}`);
+    if(ok){
+      closeSheet();
+      showToast(`Logged $${amount} — ${spot.label}`);
+    }
   }
 });
 
@@ -920,19 +962,33 @@ function computeSpotStats(allDays){
   return { byHouse: result, numDays };
 }
 
+/* Same protection as dayLoadOk above: saving adjustments replaces the whole
+   list, so a failed load must never be treated as "there are none." */
+let adjustmentsLoadOk = false;
+
 async function loadAdjustments(){
   try{
     const snap = await db.ref('adjustments').get();
+    adjustmentsLoadOk = true;
     return snap.exists() ? Object.values(snap.val()) : [];
-  }catch(e){ return []; }
+  }catch(e){
+    adjustmentsLoadOk = false;
+    return [];
+  }
 }
 async function saveAdjustments(list){
+  if(!adjustmentsLoadOk){
+    showToast('NOT SAVED — adjustments never loaded. Reconnect, then reload.');
+    return false;
+  }
   try{
     const obj = {};
     list.forEach(a => { obj[a.id] = a; });
     await db.ref('adjustments').set(obj);
+    return true;
   }catch(e){
-    showToast('Could not save — check your connection');
+    showToast('NOT SAVED — check your connection and try again.');
+    return false;
   }
 }
 
@@ -1049,10 +1105,14 @@ function populateAdjList(containerId, items){
 
 async function deleteAdjustment(id){
   let list = await loadAdjustments();
+  if(!adjustmentsLoadOk){
+    showToast('Could not load adjustments — check your connection');
+    return;
+  }
   list = list.filter(a => a.id !== id);
-  await saveAdjustments(list);
+  const ok = await saveAdjustments(list);
   await renderTotalsPage();
-  showToast('Entry removed');
+  if(ok) showToast('Entry removed');
 }
 
 function openAdjSheet(type, existing=null){
@@ -1081,13 +1141,19 @@ document.getElementById('adjSaveBtn').addEventListener('click', async ()=>{
   const date = document.getElementById('adjDate').value || dateKey(new Date());
   const note = document.getElementById('adjNote').value.trim();
   let list = await loadAdjustments();
+  if(!adjustmentsLoadOk){
+    showToast('Could not load adjustments — check your connection');
+    return;
+  }
   if(adjEditingId){
     const idx = list.findIndex(a => a.id === adjEditingId);
     if(idx > -1) list[idx] = { ...list[idx], amount, date, note };
   } else {
     list.push({ id: Date.now()+'-'+Math.random().toString(36).slice(2,7), type: adjType, amount, date, note });
   }
-  await saveAdjustments(list);
+  const ok = await saveAdjustments(list);
+  // On failure keep the sheet open so the entry isn't lost and can be retried.
+  if(!ok) return;
   closeAdjSheet();
   await renderTotalsPage();
   showToast('Saved');
