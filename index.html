@@ -277,6 +277,8 @@
   .stats-table td{ padding:8px 6px; border-top:1px solid var(--hairline); white-space:nowrap; }
   .stats-table td:first-child{ font-weight:600; }
   .stats-table tbody tr:nth-child(even){ background: var(--putty); }
+  /* In the All Years view, separates one fair day from the next. */
+  .stats-table tbody tr.group-start td{ border-top:2px solid #B5AE9C; }
   /* Keep the spot name visible while the extra columns scroll sideways. */
   .stats-table th:first-child, .stats-table td:first-child{ position:sticky; left:0; z-index:1; }
   .stats-table th:first-child{ background: var(--asphalt); }
@@ -1154,8 +1156,31 @@ function dateFromKey(k){
   const [y,m,d] = k.split('-').map(Number);
   return new Date(y, m-1, d);   // built locally: 'new Date("2026-08-27")' would be UTC and can land a day early
 }
-function shortDayLabel(k){
-  return dateFromKey(k).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+
+/* Which day of its own fair a date is (1-12), worked out from the attendance
+   table by sorting each year's dates. A new year needs nothing added here. */
+const FAIR_DAY_OF_KEY = (function(){
+  const byYear = {};
+  Object.keys(FAIR_ATTENDANCE).forEach(k=>{
+    const y = k.slice(0,4);
+    (byYear[y] = byYear[y] || []).push(k);
+  });
+  const out = {};
+  Object.keys(byYear).forEach(y=>{
+    byYear[y].sort().forEach((k,i)=>{ out[k] = i + 1; });
+  });
+  return out;
+})();
+
+function perfDayLabel(r, showYear){
+  const d = dateFromKey(r.dateK);
+  if(showYear){
+    // Fair day N is always the same weekday, so the weekday adds nothing here
+    // and the year is what actually tells the rows apart.
+    const md = d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    return r.fairDay ? `Day ${r.fairDay} \u00b7 ${md}` : md;
+  }
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 }
 
 /* Score of 100 means the day brought in exactly the revenue its share of the
@@ -1174,6 +1199,7 @@ function computeDailyPerformance(allDays){
       cars: txs.length,
       revenue: txs.reduce((s,tx)=> s + (tx.amount||0), 0),
       attendance: Object.prototype.hasOwnProperty.call(FAIR_ATTENDANCE, dateK) ? FAIR_ATTENDANCE[dateK] : null,
+      fairDay: FAIR_DAY_OF_KEY[dateK] || null,
       score: null
     };
   });
@@ -1281,15 +1307,29 @@ async function renderTotalsPage(){
   const { byHouse, numDays } = computeSpotStats(allDays);
 
   const perf = computeDailyPerformance(allDays);
-  const perfRows = perf.map(r => `
-    <tr>
-      <td>${shortDayLabel(r.dateK)}</td>
+  const acrossYears = totalsYear === 'all';
+  if(acrossYears){
+    /* Group by fair day so Day 1 of every year sits together, oldest year
+       first inside each group. Days with no attendance figure, and therefore
+       no fair day number, fall to the bottom in date order. */
+    perf.sort((a,b)=>{
+      const fa = a.fairDay || 99, fb = b.fairDay || 99;
+      return fa !== fb ? fa - fb : a.dateK.localeCompare(b.dateK);
+    });
+  }
+  let lastFairDay = null;
+  const perfRows = perf.map(r => {
+    const newGroup = acrossYears && r.fairDay !== lastFairDay;
+    lastFairDay = r.fairDay;
+    return `
+    <tr${newGroup ? ' class="group-start"' : ''}>
+      <td>${perfDayLabel(r, acrossYears)}</td>
       <td>${r.cars}</td>
       <td>${money(r.revenue)}</td>
       <td>${r.attendance === null ? '—' : r.attendance.toLocaleString()}</td>
       <td${r.score === null ? '' : ` style="${scoreStyle(r.score)}"`}>${r.score === null ? '—' : r.score}</td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
   const perfTable = perf.length === 0
     ? '<div class="log-empty">No days logged yet.</div>'
     : `<div class="stats-table-wrap" style="margin-bottom:24px;">
