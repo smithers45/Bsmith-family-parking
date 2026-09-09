@@ -645,9 +645,6 @@ const HOUSES = {
   }
 };
 
-const FAIR_START = new Date(2026, 7, 27); // Aug 27, 2026
-const FAIR_END = new Date(2026, 8, 7);    // Sep 7, 2026 (Labor Day)
-
 let currentDate = new Date();
 let dayData = []; // transactions for the visible day
 let activeSpot = null; // {house, spotId}
@@ -674,8 +671,21 @@ function dateKey(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
+/* The fair is always the twelve days ending on Labor Day — the first Monday in
+   September — so both ends are worked out from the year rather than written
+   down. This keeps the day numbering right every year with nothing to update. */
+function laborDay(year){
+  const sept1 = new Date(year, 8, 1);
+  return new Date(year, 8, 1 + ((8 - sept1.getDay()) % 7));   // getDay: Sun=0, Mon=1
+}
+function fairRangeFor(year){
+  const end = laborDay(year);
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 11);
+  return { start, end };
+}
 function fairDayNumber(d){
-  const start = new Date(FAIR_START.getFullYear(), FAIR_START.getMonth(), FAIR_START.getDate());
+  // Measured against the fair in the date's own year; a fair never spans two.
+  const start = fairRangeFor(d.getFullYear()).start;
   const cur = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   return Math.round((cur - start) / 86400000) + 1;
 }
