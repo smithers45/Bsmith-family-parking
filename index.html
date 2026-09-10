@@ -242,6 +242,8 @@
   .method-cashapp{ background: var(--cashapp-soft); color: var(--cashapp-blue); }
   .method-venmo{ background: var(--venmo-soft); color: var(--venmo-blue); }
   .method-square{ background: var(--square-soft); color: var(--square-ink); }
+  .method-comp{ background:#EDE8FA; color:#4A3486; }
+  .log-name{ font-size:0.66rem; color:var(--text-dim); font-weight:500; }
   .log-del{ background:none; border:none; color:var(--text-dim); font-size:1.1rem; padding:4px 6px; }
   .log-item{ cursor:pointer; }
 
@@ -370,6 +372,15 @@
     color:var(--asphalt);
   }
   .amt-btn.selected{ border-color: var(--pine); background: var(--pine-soft); color:var(--pine); }
+  /* Comps are a different kind of entry, so they read as dashed until chosen. */
+  .comp-btn{
+    flex:1; padding:12px 0; border-radius:10px; border:2px dashed var(--hairline);
+    background:var(--chalk); font-family:'Barlow Condensed'; font-weight:700; font-size:1rem;
+    color:var(--text-dim);
+  }
+  .comp-btn.selected{ border-style:solid; }
+  .comp-btn.selected.c-family{ border-color:#6B4FBB; background:#EDE8FA; color:#4A3486; }
+  .comp-btn.selected.c-friends{ border-color:var(--cashapp-blue); background:var(--cashapp-soft); color:#12657F; }
   .custom-wrap{ margin-bottom:16px; }
   .custom-input{
     width:100%; padding:12px 14px; border-radius:10px; border:2px solid var(--hairline);
@@ -562,6 +573,15 @@
       <input type="number" inputmode="decimal" class="custom-input" id="customAmt" placeholder="$ amount">
     </div>
 
+    <div class="field-label">Comp</div>
+    <div class="amt-row" id="compRow">
+      <button class="comp-btn c-family" data-comp="family">Family · $0</button>
+      <button class="comp-btn c-friends" data-comp="friends">Friends · $20</button>
+    </div>
+    <div class="custom-wrap" id="compNameWrap" style="display:none;">
+      <input type="text" class="custom-input" id="compName" placeholder="Name" autocomplete="off">
+    </div>
+
     <div class="field-label">Payment method</div>
     <div class="method-row" id="methodRow">
       <button class="method-btn m-cash" data-method="cash">Cash</button>
@@ -721,6 +741,7 @@ let activeSpot = null; // {house, spotId}
 let selectedAmt = 40;
 let selectedMethod = 'cash';
 let editingId = null; // id of the log entry currently being edited, or null for a new entry
+let compType = null;  // 'family' | 'friends' | null
 let adjEditingId = null;
 let adjType = 'deposit';
 let totalsYear = null; // which year the Grand Total page is showing: 'YYYY' or 'all'
@@ -771,6 +792,12 @@ function dateSubLabel(d){
   return d.toLocaleDateString('en-US', opts) + (isToday ? ' · Today' : '');
 }
 function money(n){ return '$' + Math.round(n).toLocaleString(); }
+/* Names and notes are typed by hand and rendered through innerHTML, so they
+   have to be escaped. */
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c=>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
 function timeStrToLabel(t){
   const [h,m] = t.split(':').map(Number);
   const period = h>=12 ? 'p' : 'a';
@@ -991,11 +1018,11 @@ function render(){
       <div class="log-time">${timeStrToLabel(tx.time)}</div>
       <div class="log-mid">
         <div class="log-house">${HOUSES[tx.house].name}</div>
-        <div class="log-spot">${spot ? spot.label : tx.spot}</div>
+        <div class="log-spot">${spot ? spot.label : tx.spot}${tx.name ? ` <span class="log-name">· ${esc(tx.name)}</span>` : ''}</div>
       </div>
       <div style="text-align:right;">
         <div class="log-amt">${money(tx.amount)}</div>
-        <span class="log-method method-${tx.method}">${tx.method==='cashapp'?'Cash App':tx.method.charAt(0).toUpperCase()+tx.method.slice(1)}</span>
+        <span class="log-method ${tx.comp ? 'method-comp' : 'method-' + tx.method}">${tx.comp ? (tx.comp === 'family' ? 'Family' : 'Friends') : (tx.method==='cashapp'?'Cash App':tx.method.charAt(0).toUpperCase()+tx.method.slice(1))}</span>
       </div>
       <button class="log-del" data-id="${tx.id}" title="Delete">✕</button>
     `;
@@ -1023,9 +1050,13 @@ function openSheet(houseId, spotId, existingTx=null){
   const spot = spotById(houseId, spotId);
 
   if(existingTx){
-    selectedAmt = [40,30,20].includes(existingTx.amount) ? existingTx.amount : 'custom';
+    compType = existingTx.comp || null;
+    selectedAmt = compType
+      ? existingTx.amount
+      : ([40,30,20].includes(existingTx.amount) ? existingTx.amount : 'custom');
     selectedMethod = existingTx.method;
   } else {
+    compType = null;
     selectedAmt = 40;
     selectedMethod = 'cash';
   }
@@ -1037,8 +1068,10 @@ function openSheet(houseId, spotId, existingTx=null){
   document.getElementById('timeInput').value = existingTx ? existingTx.time : nowTimeStr();
   document.getElementById('logBtn').textContent = existingTx ? 'Save changes' : 'Log payment';
   document.getElementById('deleteEntryBtn').style.display = existingTx ? 'block' : 'none';
+  document.getElementById('compName').value = (existingTx && existingTx.name) ? existingTx.name : '';
   updateAmtButtons();
   updateMethodButtons();
+  syncCompUI();
   document.getElementById('overlay').classList.add('open');
 }
 
@@ -1061,9 +1094,38 @@ function updateMethodButtons(){
   });
 }
 
+/* A comp sets its own price, so it takes over from the amount buttons. */
+function syncCompUI(){
+  document.querySelectorAll('.comp-btn').forEach(b=>{
+    b.classList.toggle('selected', b.dataset.comp === compType);
+  });
+  document.getElementById('compNameWrap').style.display = compType ? 'block' : 'none';
+  document.getElementById('customWrap').style.display =
+    (!compType && selectedAmt === 'custom') ? 'block' : 'none';
+  updateAmtButtons();
+}
+
+document.getElementById('compRow').addEventListener('click', (e)=>{
+  const btn = e.target.closest('.comp-btn');
+  if(!btn) return;
+  const type = btn.dataset.comp;
+  if(compType === type){
+    compType = null;                       // tapping it again clears the comp
+    selectedAmt = 40;
+  } else {
+    compType = type;
+    selectedAmt = (type === 'family') ? 0 : 20;
+  }
+  syncCompUI();
+  if(compType) document.getElementById('compName').focus();
+});
+
 document.getElementById('amtRow').addEventListener('click', (e)=>{
   const btn = e.target.closest('.amt-btn');
   if(!btn) return;
+  compType = null;                         // picking a price is not a comp
+  document.getElementById('compNameWrap').style.display = 'none';
+  document.querySelectorAll('.comp-btn').forEach(b=> b.classList.remove('selected'));
   if(btn.dataset.amt === 'custom'){
     selectedAmt = 'custom';
     document.getElementById('customWrap').style.display = 'block';
@@ -1100,7 +1162,11 @@ document.getElementById('logBtn').addEventListener('click', async ()=>{
     const idx = dayData.findIndex(t => t.id === editingId);
     const before = idx > -1 ? dayData[idx] : null;
     if(idx > -1){
-      dayData[idx] = { ...dayData[idx], amount, method: selectedMethod, time };
+      const nm = document.getElementById('compName').value.trim();
+      /* null clears the key in Firebase, which is what un-comping should do. */
+      dayData[idx] = { ...dayData[idx], amount, method: selectedMethod, time,
+                       comp: compType || null,
+                       name: (compType && nm) ? nm : null };
     }
     const ok = await saveDay();
     if(!ok && idx > -1) dayData[idx] = before;
@@ -1119,6 +1185,11 @@ document.getElementById('logBtn').addEventListener('click', async ()=>{
       method: selectedMethod,
       time: time
     };
+    if(compType){
+      tx.comp = compType;
+      const nm = document.getElementById('compName').value.trim();
+      if(nm) tx.name = nm;
+    }
     dayData.push(tx);
     const ok = await saveDay();
     if(!ok) dayData = dayData.filter(t => t.id !== tx.id);
@@ -1890,7 +1961,7 @@ function populateAdjList(containerId, items){
     row.innerHTML = `
       <div class="log-mid">
         <div class="log-house">${a.date}</div>
-        <div class="log-spot">${a.note ? a.note : (a.type==='deposit' ? 'Bank deposit' : 'Fair expense')}</div>
+        <div class="log-spot">${a.note ? esc(a.note) : (a.type==='deposit' ? 'Bank deposit' : 'Fair expense')}</div>
       </div>
       <div class="log-amt">${money(a.amount)}</div>
       <button class="log-del" data-id="${a.id}" title="Delete">✕</button>
