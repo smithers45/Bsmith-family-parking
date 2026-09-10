@@ -61,6 +61,7 @@
   .tier-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
   .tier-name{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.2rem; }
   .tier-price{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.6rem; color:var(--pine); white-space:nowrap; }
+  .tier-break{ font-size:0.68rem; color:var(--text-dim); text-align:right; margin-top:1px; line-height:1.25; }
   .tier-rule{ font-size:0.82rem; color:var(--text-dim); margin-top:3px; }
   .tier-left{ font-size:0.74rem; color:var(--vest-orange-dark); font-weight:600; margin-top:7px; }
   .tier-left.none{ color:var(--text-dim); font-weight:500; }
@@ -216,6 +217,12 @@
       A family operation running two yards during the Great Minnesota Get-Together.
       Questions about a booking? <span id="footContact"></span>
     </div>
+    <div style="margin-top:10px;">
+      <a href="legal/#terms">Terms of Service</a> &middot;
+      <a href="legal/#refunds">Cancellations &amp; Refunds</a> &middot;
+      <a href="legal/#privacy">Privacy Policy</a>
+    </div>
+    <div style="margin-top:8px;">All prices include Minnesota sales tax.</div>
     <div style="margin-top:10px;" id="footNote"></div>
   </div>
 </footer>
@@ -321,6 +328,17 @@ const PRICES = {
   wholeFair: 1000
 };
 const QUIET_DAYS = [5, 6, 7, 8];
+
+/* Flat charge for reserving online. It is a fee for the reservation service -
+   a space held in advance, which a walk-up customer does not get - not a
+   surcharge tied to card type. Minnesota sales tax is calculated on the total
+   including this fee, and every advertised price is tax-inclusive. */
+const BOOKING_FEE = 2;
+function withFee(base){ return base + BOOKING_FEE; }
+function feeBreakdown(base){
+  return money(base) + ' parking + ' + money(BOOKING_FEE) +
+         ' booking fee \u00b7 tax included';
+}
 
 /* Only these three spots are offered for the whole fair. */
 const WHOLE_FAIR_SPOTS = [
@@ -465,7 +483,10 @@ function renderTiers(){
           <div class="tier-rule">One half of the day. Morning arrivals leave by 2pm;
             afternoon arrivals come any time from 2pm and can stay until the fair closes.</div>
         </div>
-        <div class="tier-price">${money(PRICES.standard)}</div>
+        <div>
+          <div class="tier-price">${money(withFee(PRICES.standard))}</div>
+          <div class="tier-break">${feeBreakdown(PRICES.standard)}</div>
+        </div>
       </div>
       <div class="shift-row">
         <button class="shift-btn${selectedShift==='morning'?' selected':''}" data-shift="morning">
@@ -475,7 +496,7 @@ function renderTiers(){
       </div>
       ${leftText('standard')}
       <button class="book-btn" data-tier="standard"${canBook('standard')?'':' disabled'}>
-        ${open ? 'Reserve for ' + money(PRICES.standard) : 'Not yet available'}</button>
+        ${open ? 'Reserve for ' + money(withFee(PRICES.standard)) : 'Not yet available'}</button>
     </div>
 
     <div class="tier">
@@ -485,11 +506,14 @@ function renderTiers(){
           <div class="tier-rule">Arrive any time after 6pm and stay until the fair closes.
             The cheapest way in for an evening at the grandstand.</div>
         </div>
-        <div class="tier-price">${money(PRICES.late)}</div>
+        <div>
+          <div class="tier-price">${money(withFee(PRICES.late))}</div>
+          <div class="tier-break">${feeBreakdown(PRICES.late)}</div>
+        </div>
       </div>
       ${leftText('late')}
       <button class="book-btn" data-tier="late"${canBook('late')?'':' disabled'}>
-        ${open ? 'Reserve for ' + money(PRICES.late) : 'Not yet available'}</button>
+        ${open ? 'Reserve for ' + money(withFee(PRICES.late)) : 'Not yet available'}</button>
     </div>
 
     <div class="tier">
@@ -499,16 +523,21 @@ function renderTiers(){
           <div class="tier-rule">Yours from open to close with unlimited in and out.
             Leave your cooler in the car and come back for it.</div>
         </div>
-        <div class="tier-price">${money(alldayPrice(fd))}</div>
+        <div>
+          <div class="tier-price">${money(withFee(alldayPrice(fd)))}</div>
+          <div class="tier-break">${feeBreakdown(alldayPrice(fd))}</div>
+        </div>
       </div>
       ${leftText('allday')}
       <button class="book-btn" data-tier="allday"${canBook('allday')?'':' disabled'}>
-        ${open ? 'Reserve for ' + money(alldayPrice(fd)) : 'Not yet available'}</button>
+        ${open ? 'Reserve for ' + money(withFee(alldayPrice(fd))) : 'Not yet available'}</button>
     </div>
 
     <div class="note" style="margin:2px 2px 0;">
-      All Day is ${money(PRICES.alldayQuiet)} on the four quieter mid-fair days and
-      ${money(PRICES.alldayBusy)} on the rest.
+      All Day parking is ${money(PRICES.alldayQuiet)} on the four quieter mid-fair days
+      and ${money(PRICES.alldayBusy)} on the rest. Every price on this page includes
+      Minnesota sales tax; the ${money(BOOKING_FEE)} booking fee is added for
+      reserving online and is shown in each total above.
     </div>
   `;
 
@@ -530,11 +559,13 @@ function renderWholeFair(){
   const open = bookingOpen();
   const wf = wholeFair[String(year)] || {};
   document.getElementById('wfTitle').textContent =
-    'The whole fair, one spot \u2014 ' + money(PRICES.wholeFair);
+    'The whole fair, one spot \u2014 ' + money(withFee(PRICES.wholeFair));
   host.innerHTML = `
     <div class="note" style="margin-bottom:12px;">
       Three spots at 1372 Asbury are offered for all twelve days. Same space every
       day, unlimited in and out, nobody else parks in it. Only these three.
+      ${money(PRICES.wholeFair)} parking, tax included, plus the
+      ${money(BOOKING_FEE)} booking fee.
     </div>
     ${WHOLE_FAIR_SPOTS.map(s=>{
       const state = wf[s.id];
@@ -616,7 +647,8 @@ function describe(req){
   if(req.kind === 'wholefair'){
     const s = WHOLE_FAIR_SPOTS.filter(x=> x.id === req.spot)[0];
     return (s ? s.label : req.spot) + ' \u00b7 all twelve days of the ' + req.year +
-           ' fair \u00b7 ' + money(PRICES.wholeFair);
+           ' fair \u00b7 ' + money(withFee(PRICES.wholeFair)) +
+           ' (' + feeBreakdown(PRICES.wholeFair) + ')';
   }
   const idx = days.findIndex(x=> dateKey(x) === req.date);
   const d = days[idx];
@@ -625,7 +657,8 @@ function describe(req){
               : (req.tier === 'late' ? PRICES.late : alldayPrice(idx + 1));
   const name = req.tier === 'standard' ? ('Standard, ' + req.shift)
              : (req.tier === 'late' ? 'Late Night' : 'All Day');
-  return name + ' \u00b7 ' + nice + ' \u00b7 ' + money(price);
+  return name + ' \u00b7 ' + nice + ' \u00b7 ' + money(withFee(price)) +
+         ' (' + feeBreakdown(price) + ')';
 }
 
 function openDetails(req){
