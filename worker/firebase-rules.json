@@ -1,0 +1,43 @@
+{
+  "rules": {
+    "//": "Deny everything by default; grant only the paths that need it.",
+    ".read": false,
+    ".write": false,
+
+    "//days": "The family logging app. Signed in with the shared account only.",
+    "days": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "adjustments": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "occupancy": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "goals": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "//public": "Prices, caps and remaining availability. Anyone may read this; nobody may write it. The worker writes with a service account, which bypasses these rules.",
+    "public": {
+      ".read": true,
+      ".write": false
+    },
+
+    "//reservations": "Confirmed bookings, including customer phone numbers and vehicles. Readable by the signed-in family app so it can show the day's arrivals. Never writable from a browser - only the signature-verified webhook creates these.",
+    "reservations": {
+      ".read": "auth != null",
+      ".write": false
+    },
+
+    "//pending": "In-flight checkout holds. Nothing outside the worker has any business reading or writing these.",
+    "pending": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}
