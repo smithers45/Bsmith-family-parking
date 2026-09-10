@@ -112,6 +112,47 @@
     font-size:0.78rem; border-top:5px solid var(--line-yellow);
   }
   footer a{ color:var(--line-yellow); }
+
+  /* ---- details sheet ---- */
+  .sheet-overlay{
+    position:fixed; inset:0; background:rgba(20,20,18,0.55); z-index:60;
+    display:flex; align-items:flex-end; justify-content:center;
+    opacity:0; pointer-events:none; transition:opacity 0.18s ease;
+  }
+  .sheet-overlay.open{ opacity:1; pointer-events:auto; }
+  .sheet{
+    background:var(--putty); width:100%; max-width:620px; max-height:92vh; overflow-y:auto;
+    border-radius:18px 18px 0 0; padding:18px 16px 26px;
+    transform:translateY(16px); transition:transform 0.18s ease;
+  }
+  .sheet-overlay.open .sheet{ transform:translateY(0); }
+  .sheet-grab{ width:40px; height:4px; border-radius:3px; background:var(--hairline); margin:0 auto 14px; }
+  .sheet h3{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.35rem; margin:0 0 3px; }
+  .sheet-what{ font-size:0.84rem; color:var(--text-dim); margin-bottom:15px; }
+  .fld{ margin-bottom:13px; }
+  .fld label{
+    display:block; font-size:0.72rem; font-weight:600; text-transform:uppercase;
+    letter-spacing:0.05em; color:var(--text-dim); margin-bottom:5px;
+  }
+  .fld input{
+    width:100%; padding:12px 13px; border-radius:10px; border:2px solid var(--hairline);
+    background:var(--chalk); color:var(--asphalt); font-family:'Inter'; font-size:1rem;
+  }
+  .fld input:focus{ outline:none; border-color:var(--pine); }
+  .fld input.bad{ border-color:#C0392B; background:#FAD9D5; }
+  .fld .hint{ font-size:0.72rem; color:var(--text-dim); margin-top:4px; }
+  .two{ display:flex; gap:10px; }
+  .two .fld{ flex:1; min-width:0; }
+  .text-us{
+    background:#FDF2CC; border:1px solid #E8CE73; color:#6B5200;
+    border-radius:11px; padding:12px 14px; margin:2px 0 15px; font-size:0.85rem;
+  }
+  .text-us strong{ display:block; font-family:'Barlow Condensed'; font-size:1.05rem; margin-bottom:2px; }
+  .err{ color:#8E2A20; font-size:0.82rem; margin:0 0 10px; display:none; font-weight:600; }
+  .cancel{
+    width:100%; margin-top:8px; padding:11px 0; border:none; background:none;
+    color:var(--text-dim); font-size:0.88rem; cursor:pointer;
+  }
 </style>
 </head>
 <body>
@@ -147,14 +188,17 @@
   <h2>How it works</h2>
   <div class="card">
     <ol class="steps">
-      <li>Pick a day and an option, then pay by card. You'll get a receipt by email.</li>
-      <li>Drive to the address on your receipt and give your name at the gate.</li>
-      <li>We'll walk you to your spot. Your space is held for the window you booked.</li>
+      <li>Pick a day and an option, tell us who's coming and what you're driving,
+        then pay by card. You'll get a receipt by email.</li>
+      <li><strong>Text us when you're 10 minutes away.</strong> The number is on your
+        receipt. This is the important one — it means someone is waiting at the gate
+        instead of you circling the block.</li>
+      <li>Give your name at the gate and we'll walk you straight to your spot.</li>
     </ol>
     <div class="note" style="margin-top:10px;">
       Both yards are on Asbury Street. Exact addresses and arrival notes are on your
       receipt. Spots are assigned when you arrive so we can put larger vehicles where
-      they fit best.
+      they fit best — which is why we ask what you're driving.
     </div>
   </div>
 
@@ -171,6 +215,46 @@
   </div>
 </footer>
 
+<div class="sheet-overlay" id="detailsOverlay">
+  <div class="sheet">
+    <div class="sheet-grab"></div>
+    <h3>Who's coming?</h3>
+    <div class="sheet-what" id="dWhat"></div>
+
+    <div class="text-us" id="dTextUs"></div>
+
+    <div class="err" id="dErr"></div>
+
+    <div class="fld">
+      <label for="dName">Name</label>
+      <input type="text" id="dName" autocomplete="name" placeholder="Who should we look for?">
+    </div>
+    <div class="fld">
+      <label for="dPhone">Mobile number</label>
+      <input type="tel" id="dPhone" autocomplete="tel" inputmode="tel" placeholder="(612) 555-0134">
+      <div class="hint">So we can reach you on the day, and so we know who's texting.</div>
+    </div>
+    <div class="fld">
+      <label for="dArrive">Estimated arrival time</label>
+      <input type="time" id="dArrive">
+      <div class="hint" id="dArriveHint"></div>
+    </div>
+    <div class="two">
+      <div class="fld">
+        <label for="dCar">Car make &amp; model</label>
+        <input type="text" id="dCar" placeholder="Honda CR-V">
+      </div>
+      <div class="fld">
+        <label for="dColour">Colour</label>
+        <input type="text" id="dColour" placeholder="Silver">
+      </div>
+    </div>
+
+    <button class="book-btn" id="dGo">Continue to payment</button>
+    <button class="cancel" id="dCancel">Cancel</button>
+  </div>
+</div>
+
 <script>
 /* =========================================================================
    PUBLIC RESERVATION PAGE
@@ -186,9 +270,17 @@
    endpoint, never here. Viewing this page's source reveals nothing useful.
 
    The public data it expects, all under /public:
-     public/config/{ open: bool, year: "2027", contact: "..." }
+     public/config/{ open: bool, year: "2027", contact: "...", textNumber: "..." }
      public/availability/{YYYY-MM-DD}/{standard|late|allday}/{ cap, sold }
      public/wholefair/{YYYY}/{backtruck|backgarden|backdavid}: "open" | "sold"
+
+   What it sends to CHECKOUT_ENDPOINT:
+     { kind:'day', tier:'standard'|'late'|'allday', date:'YYYY-MM-DD',
+       shift:'morning'|'afternoon'|null, guest:{...} }
+     { kind:'wholefair', spot:'backtruck'|'backgarden'|'backdavid', year:'YYYY',
+       guest:{...} }
+   where guest is { name, phone, arrive, car, colour }. The endpoint must treat
+   all of it as untrusted and re-check the price and availability itself.
    ========================================================================= */
 
 const firebaseConfig = {
@@ -201,6 +293,20 @@ const firebaseConfig = {
 /* Set this once the booking function is deployed. While it is empty the page
    shows its prices but does not pretend it can take money. */
 const CHECKOUT_ENDPOINT = "";
+
+/* The number guests text when they're close. Can also be set in
+   public/config/textNumber so it changes without touching this file. */
+const TEXT_NUMBER = "";
+
+/* Arrival times each option allows, so nobody books Late Night and then tells
+   us they'll be there at nine in the morning. */
+const ARRIVAL_WINDOWS = {
+  standard_morning:   { min:'06:30', max:'14:00', label:'between 6:30am and 2pm' },
+  standard_afternoon: { min:'14:00', max:'23:00', label:'from 2pm onwards' },
+  late:               { min:'18:00', max:'23:00', label:'after 6pm' },
+  allday:             { min:'06:30', max:'23:00', label:'any time the fair is open' },
+  wholefair:          { min:'06:30', max:'23:00', label:'any time on your first day' }
+};
 
 const PRICES = {
   standard: 40,
@@ -379,7 +485,7 @@ function renderTiers(){
     b.addEventListener('click', ()=>{ selectedShift = b.dataset.shift; renderTiers(); });
   });
   host.querySelectorAll('.book-btn').forEach(b=>{
-    b.addEventListener('click', ()=> startCheckout({
+    b.addEventListener('click', ()=> openDetails({
       kind: 'day',
       tier: b.dataset.tier,
       date: selectedDay,
@@ -420,7 +526,7 @@ function renderWholeFair(){
     }).join('')}
   `;
   host.querySelectorAll('.wf-btn').forEach(b=>{
-    b.addEventListener('click', ()=> startCheckout({
+    b.addEventListener('click', ()=> openDetails({
       kind: 'wholefair', spot: b.dataset.spot, year: String(year)
     }));
   });
@@ -441,6 +547,123 @@ function renderAll(){
   renderWholeFair();
 }
 
+/* ---- the details step ---- */
+
+let pendingRequest = null;
+
+function windowFor(req){
+  if(req.kind === 'wholefair') return ARRIVAL_WINDOWS.wholefair;
+  if(req.tier === 'standard') return ARRIVAL_WINDOWS['standard_' + req.shift];
+  return ARRIVAL_WINDOWS[req.tier];
+}
+function textNumber(){
+  return TEXT_NUMBER || (config && config.textNumber) || '';
+}
+function toMinutes(t){
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+function digitsOnly(s){ return String(s || '').replace(/\D/g, ''); }
+
+function describe(req){
+  if(req.kind === 'wholefair'){
+    const s = WHOLE_FAIR_SPOTS.filter(x=> x.id === req.spot)[0];
+    return (s ? s.label : req.spot) + ' \u00b7 all twelve days of the ' + req.year +
+           ' fair \u00b7 ' + money(PRICES.wholeFair);
+  }
+  const idx = days.findIndex(x=> dateKey(x) === req.date);
+  const d = days[idx];
+  const nice = d ? d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) : req.date;
+  const price = req.tier === 'standard' ? PRICES.standard
+              : (req.tier === 'late' ? PRICES.late : alldayPrice(idx + 1));
+  const name = req.tier === 'standard' ? ('Standard, ' + req.shift)
+             : (req.tier === 'late' ? 'Late Night' : 'All Day');
+  return name + ' \u00b7 ' + nice + ' \u00b7 ' + money(price);
+}
+
+function openDetails(req){
+  if(!bookingOpen()) return;
+  pendingRequest = req;
+  const w = windowFor(req);
+  document.getElementById('dWhat').textContent = describe(req);
+  document.getElementById('dArriveHint').textContent =
+    'For this option, arrival should be ' + w.label + '.';
+  const arr = document.getElementById('dArrive');
+  arr.min = w.min; arr.max = w.max;
+  if(!arr.value || toMinutes(arr.value) < toMinutes(w.min) ||
+     toMinutes(arr.value) > toMinutes(w.max)) arr.value = w.min;
+  const num = textNumber();
+  document.getElementById('dTextUs').innerHTML = num
+    ? "<strong>Please text us when you're 10 minutes away</strong>Text " + esc(num) +
+      " and someone will be at the gate ready to walk you in."
+    : "<strong>Please text us when you're 10 minutes away</strong>The number is on " +
+      "your receipt. It means someone is at the gate ready to walk you in.";
+  document.getElementById('dErr').style.display = 'none';
+  document.getElementById('detailsOverlay').classList.add('open');
+  setTimeout(()=>{ document.getElementById('dName').focus(); }, 140);
+}
+
+function closeDetails(){
+  document.getElementById('detailsOverlay').classList.remove('open');
+  pendingRequest = null;
+}
+
+function submitDetails(){
+  if(!pendingRequest) return;
+  const err = document.getElementById('dErr');
+  const f = {
+    name:   document.getElementById('dName'),
+    phone:  document.getElementById('dPhone'),
+    arrive: document.getElementById('dArrive'),
+    car:    document.getElementById('dCar'),
+    colour: document.getElementById('dColour')
+  };
+  Object.keys(f).forEach(k=> f[k].classList.remove('bad'));
+
+  const missing = [];
+  if(!f.name.value.trim()){ f.name.classList.add('bad'); missing.push('your name'); }
+
+  const digits = digitsOnly(f.phone.value);
+  if(digits.length !== 10 && !(digits.length === 11 && digits.charAt(0) === '1')){
+    f.phone.classList.add('bad'); missing.push('a 10-digit mobile number');
+  }
+
+  const w = windowFor(pendingRequest);
+  const mins = toMinutes(f.arrive.value);
+  if(mins === null){
+    f.arrive.classList.add('bad'); missing.push('an arrival time');
+  }else if(mins < toMinutes(w.min) || mins > toMinutes(w.max)){
+    f.arrive.classList.add('bad'); missing.push('an arrival time ' + w.label);
+  }
+
+  if(!f.car.value.trim()){ f.car.classList.add('bad'); missing.push("your car's make and model"); }
+  if(!f.colour.value.trim()){ f.colour.classList.add('bad'); missing.push("your car's colour"); }
+
+  if(missing.length){
+    err.textContent = 'Please give ' + missing.join(', ') + '.';
+    err.style.display = 'block';
+    return;
+  }
+  err.style.display = 'none';
+
+  const req = {};
+  Object.keys(pendingRequest).forEach(k=>{ req[k] = pendingRequest[k]; });
+  req.guest = {
+    name:   f.name.value.trim().slice(0, 80),
+    phone:  digits.length === 11 ? digits.slice(1) : digits,
+    arrive: f.arrive.value,
+    car:    f.car.value.trim().slice(0, 60),
+    colour: f.colour.value.trim().slice(0, 30)
+  };
+  startCheckout(req);
+}
+
+document.getElementById('dGo').addEventListener('click', submitDetails);
+document.getElementById('dCancel').addEventListener('click', closeDetails);
+document.getElementById('detailsOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'detailsOverlay') closeDetails();
+});
+
 /* Hands the request to the server-side function, which creates the Square
    checkout. This page never sees a card number and never records a booking. */
 async function startCheckout(request){
@@ -456,7 +679,8 @@ async function startCheckout(request){
     if(!res.ok) throw new Error('Checkout unavailable (' + res.status + ')');
     const data = await res.json();
     if(!data || !data.url) throw new Error('No checkout link came back');
-    window.location.href = data.url;      // Square's hosted payment page
+    // hand off to Square's hosted payment page
+    window.location.href = data.url;
   }catch(e){
     alert("Sorry, we couldn't start the checkout just now. Please try again in a "
          + "moment, or park with us on the day - we always keep spots open.");
