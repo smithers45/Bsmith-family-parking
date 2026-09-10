@@ -285,6 +285,37 @@
   .stats-table td:first-child{ background: var(--chalk); }
   .stats-table tbody tr:nth-child(even) td:first-child{ background: var(--putty); }
 
+  /* ---- charts (hand-rolled SVG, no library, works offline) ---- */
+  .chart-wrap{
+    background: var(--chalk); border:1px solid var(--hairline); border-radius:12px;
+    padding:10px 8px 8px 8px; margin-bottom:12px;
+  }
+  .chart-wrap svg{ display:block; width:100%; height:auto; }
+  .chart-grid{ stroke:#E4DECE; stroke-width:1; }
+  .chart-axis{ fill:var(--text-dim); font-family:'Inter'; font-size:7px; }
+  .chart-line{ fill:none; stroke-linejoin:round; stroke-linecap:round; }
+  .chart-legend{ display:flex; flex-wrap:wrap; gap:3px 10px; margin:8px 2px 0 2px; }
+  .legend-key{
+    display:flex; align-items:center; gap:5px; font-size:0.64rem; color:var(--asphalt);
+    background:none; border:none; padding:3px 0; font-family:'Inter';
+  }
+  .legend-dash{ width:15px; height:0; border-top-width:3px; border-radius:2px; border-top-style:solid; }
+  .legend-dash.dashed{ border-top-style:dotted; }
+
+  /* ---- goal mode ---- */
+  .goal-toggle{
+    border:2px solid var(--hairline); background:var(--chalk); border-radius:20px;
+    padding:7px 15px; font-family:'Barlow Condensed'; font-weight:700; font-size:0.9rem;
+    color:var(--text-dim); margin:0 0 10px 2px;
+  }
+  .goal-toggle.on{ border-color:var(--pine); background:var(--pine-soft); color:var(--pine); }
+  .goal-box{
+    background:var(--chalk); border:1px solid var(--hairline); border-radius:12px;
+    padding:12px; margin-bottom:12px;
+  }
+  .goal-ahead{ color:#1C5B31; font-weight:700; }
+  .goal-behind{ color:#8E2A20; font-weight:700; }
+
   /* Modal */
   .overlay{
     position:fixed; inset:0; background:rgba(20,20,18,0.5); z-index:50;
@@ -1269,11 +1300,202 @@ async function saveAdjustments(list){
   }
 }
 
+/* ---------- Charts ---------- */
+
+const FAIR_DAY_LABELS = ['1','2','3','4','5','6','7','8','9','10','11','12'];
+
+function niceCeil(v){
+  if(v <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  for(const s of [1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10]){
+    if(v <= s * mag) return s * mag;
+  }
+  return 10 * mag;
+}
+
+/* series: [{ key, name, color, dash, width, opacity, values:[num|null ...] }]
+   Drawn as an SVG with a viewBox so it scales to any phone width. */
+function lineChart(series, xLabels, opts){
+  opts = opts || {};
+  const W = 320, H = opts.height || 175;
+  const padL = 42, padR = 8, padT = 8, padB = 22;
+  const iw = W - padL - padR, ih = H - padT - padB;
+
+  let maxY = 0;
+  series.forEach(s => s.values.forEach(v => { if(v !== null && v !== undefined && v > maxY) maxY = v; }));
+  maxY = niceCeil(maxY);
+
+  const X = i => padL + (xLabels.length > 1 ? i * iw / (xLabels.length - 1) : iw / 2);
+  const Y = v => padT + ih - (v / maxY) * ih;
+  const fmt = opts.yFormat || (v => String(Math.round(v)));
+
+  let g = '';
+  for(let t = 0; t <= 4; t++){
+    const v = maxY * t / 4, yy = Y(v).toFixed(1);
+    g += `<line class="chart-grid" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
+    g += `<text class="chart-axis" x="${padL - 4}" y="${(Y(v) + 2.5).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  xLabels.forEach((lb, i)=>{
+    if(xLabels.length > 8 && i % 2 === 1 && i !== xLabels.length - 1) return;
+    g += `<text class="chart-axis" x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="middle">${lb}</text>`;
+  });
+
+  let paths = '';
+  series.forEach(s=>{
+    let d = '', pen = false;
+    s.values.forEach((v,i)=>{
+      if(v === null || v === undefined){ pen = false; return; }
+      d += (pen ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      pen = true;
+    });
+    if(!d) return;
+    const extra = (s.dash ? ` stroke-dasharray="${s.dash}"` : '') +
+                  ` stroke-width="${s.width || 1.6}"` +
+                  (s.opacity !== undefined ? ` opacity="${s.opacity}"` : '');
+    paths += `<path class="chart-line" data-key="${s.key}" d="${d.trim()}" stroke="${s.color}"${extra}/>`;
+    if(opts.dots){
+      s.values.forEach((v,i)=>{
+        if(v === null || v === undefined) return;
+        paths += `<circle data-key="${s.key}" cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.1" fill="${s.color}"${s.opacity !== undefined ? ` opacity="${s.opacity}"` : ''}/>`;
+      });
+    }
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img">${g}${paths}</svg>`;
+}
+
+function chartLegend(series){
+  return `<div class="chart-legend">${series.map(s=>
+    `<button class="legend-key" data-key="${s.key}"><span class="legend-dash${s.dash ? ' dashed' : ''}" style="border-top-color:${s.color}"></span>${s.name}</button>`
+  ).join('')}</div>`;
+}
+
+function moneyAxis(v){
+  return v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + Math.round(v);
+}
+
+/* ---------- Cross-year analysis ---------- */
+
+/* One entry per spot, with a stable colour. The two houses are also split by
+   solid vs dotted, which does most of the work of telling 15 lines apart. */
+const SPOT_SERIES = (function(){
+  const out = [];
+  Object.keys(HOUSES).forEach((houseId, hi)=>{
+    HOUSES[houseId].spots.forEach(s=>{
+      out.push({ key: houseId + '-' + s.id, house: houseId, label: s.label,
+                 dash: hi === 1 ? '3 2.5' : null });
+    });
+  });
+  out.forEach((s,i)=>{ s.color = `hsl(${Math.round(i * 360 / out.length)}, 62%, 44%)`; });
+  return out;
+})();
+
+/* For each spot, the average it took on each day of the fair, across every
+   year that operated on that day. A spot that earned nothing counts as $0,
+   which is the honest denominator. */
+function spotDayAverages(allDaysRaw){
+  const sums = {};
+  const yearsOnDay = Array.from({length:12}, ()=> ({}));
+  Object.keys(allDaysRaw).forEach(k=>{
+    const fd = FAIR_DAY_OF_KEY[k]; if(!fd) return;
+    const txs = allDaysRaw[k] || [];
+    if(!txs.length) return;
+    yearsOnDay[fd-1][k.slice(0,4)] = true;
+    txs.forEach(tx=>{
+      const key = tx.house + '-' + tx.spot;
+      (sums[key] = sums[key] || new Array(12).fill(0))[fd-1] += (tx.amount || 0);
+    });
+  });
+  const counts = yearsOnDay.map(o => Object.keys(o).length);
+  return SPOT_SERIES.map(s=>({
+    key: s.key, name: s.house + ' ' + s.label, color: s.color, dash: s.dash,
+    values: (sums[s.key] || new Array(12).fill(0)).map((v,i)=> counts[i] ? v / counts[i] : null)
+  }));
+}
+
+const YEAR_COLORS = ['#C0392B', '#1E88A8', '#3F9D57', '#6B4FBB', '#D4A017'];
+
+/* Running total by fair day, one line per year. The line stops at the last
+   day that has data, so a fair in progress does not draw a flat tail. */
+function cumulativeByYear(allDaysRaw, highlightYear){
+  const byYear = {};
+  Object.keys(allDaysRaw).forEach(k=>{
+    const fd = FAIR_DAY_OF_KEY[k]; if(!fd) return;
+    const y = k.slice(0,4);
+    const arr = byYear[y] = byYear[y] || new Array(12).fill(null);
+    arr[fd-1] = (arr[fd-1] || 0) + (allDaysRaw[k] || []).reduce((s,tx)=> s + (tx.amount||0), 0);
+  });
+  return Object.keys(byYear).sort().map((y,i)=>{
+    const arr = byYear[y];
+    const last = arr.reduce((acc,v,idx)=> v !== null ? idx : acc, -1);
+    let run = 0;
+    const values = arr.map((v,idx)=>{
+      if(idx > last) return null;
+      run += (v || 0);
+      return run;
+    });
+    const dim = highlightYear && highlightYear !== 'all' && y !== highlightYear;
+    return { key: 'yr-' + y, name: y, color: YEAR_COLORS[i % YEAR_COLORS.length],
+             values, width: dim ? 1.1 : 2.3, opacity: dim ? 0.3 : 1 };
+  });
+}
+
+/* How takings have actually spread across the twelve days, from prior years
+   that ran a full fair: each day as a share of that year's total, averaged.
+   This already carries the attendance pattern AND the capacity ceiling —
+   weighting by raw attendance would over-promise the closing weekend, which
+   the performance scores show cannot in fact be exploited. */
+function revenueShape(allDaysRaw, excludeYear){
+  const byYear = {};
+  Object.keys(allDaysRaw).forEach(k=>{
+    const fd = FAIR_DAY_OF_KEY[k]; if(!fd) return;
+    const y = k.slice(0,4);
+    if(y === String(excludeYear)) return;
+    (byYear[y] = byYear[y] || new Array(12).fill(0))[fd-1] +=
+      (allDaysRaw[k] || []).reduce((s,tx)=> s + (tx.amount||0), 0);
+  });
+  const shares = [];
+  Object.keys(byYear).forEach(y=>{
+    const arr = byYear[y];
+    const total = arr.reduce((a,b)=> a + b, 0);
+    const daysRun = arr.filter(v=> v > 0).length;
+    if(total > 0 && daysRun >= 10) shares.push(arr.map(v=> v / total));
+  });
+  if(!shares.length) return null;
+  const out = new Array(12).fill(0);
+  shares.forEach(s=> s.forEach((v,i)=>{ out[i] += v / shares.length; }));
+  const sum = out.reduce((a,b)=> a + b, 0);
+  return { shape: out.map(v=> v / sum), years: shares.length };
+}
+
+/* ---------- Goal mode ---------- */
+
+let goalMode = false;
+let goalAmounts = {};   // year -> whole-fair goal, shared through Firebase
+
+async function loadGoals(){
+  try{
+    const snap = await db.ref('goals').get();
+    goalAmounts = (snap.exists() && snap.val()) ? snap.val() : {};
+  }catch(e){ /* offline - leave whatever is already known */ }
+}
+async function saveGoal(year, amount){
+  try{
+    if(!amount || amount <= 0) await db.ref('goals/' + year).remove();
+    else await db.ref('goals/' + year).set(amount);
+    return true;
+  }catch(e){
+    showToast('Could not save the goal — check your connection');
+    return false;
+  }
+}
+
 function yearOf(dateStr){ return String(dateStr || '').slice(0,4); }
 
 async function renderTotalsPage(){
   const allDaysRaw = await fetchAllDays();
   const allAdjustments = await loadAdjustments();
+  await loadGoals();
 
   /* Every record is stored under its own date, so the list of years builds
      itself — 2027 appears on its own the first time anything is logged in
@@ -1327,10 +1549,31 @@ async function renderTotalsPage(){
       return fa !== fb ? fa - fb : a.dateK.localeCompare(b.dateK);
     });
   }
-  let lastFairDay = null;
+  /* Goal mode: a whole-fair target spread across the days the way takings have
+     historically fallen, rather than evenly. */
+  const goal = Number(goalAmounts[totalsYear]) || 0;
+  const shapeInfo = acrossYears ? null : revenueShape(allDaysRaw, totalsYear);
+  const showGoal = !acrossYears && goal > 0 && !!shapeInfo;
+  const cumGoal = [];
+  if(showGoal){
+    let run = 0;
+    shapeInfo.shape.forEach(f=>{ run += goal * f; cumGoal.push(run); });
+  }
+
+  let lastFairDay = null, runActual = 0;
   const perfRows = perf.map(r => {
     const newGroup = acrossYears && r.fairDay !== lastFairDay;
     lastFairDay = r.fairDay;
+    let goalCells = '';
+    if(showGoal){
+      runActual += r.revenue;
+      const g = r.fairDay ? cumGoal[r.fairDay - 1] : null;
+      const diff = g === null ? null : runActual - g;
+      goalCells =
+        `<td>${g === null ? '\u2014' : money(g)}</td>` +
+        `<td class="${diff === null ? '' : (diff >= 0 ? 'goal-ahead' : 'goal-behind')}">` +
+        `${diff === null ? '\u2014' : (diff >= 0 ? '+' : '\u2212') + money(Math.abs(diff))}</td>`;
+    }
     return `
     <tr${newGroup ? ' class="group-start"' : ''}>
       <td>${perfDayLabel(r, acrossYears)}</td>
@@ -1338,16 +1581,51 @@ async function renderTotalsPage(){
       <td>${money(r.revenue)}</td>
       <td>${r.attendance === null ? '—' : r.attendance.toLocaleString()}</td>
       <td${r.score === null ? '' : ` style="${scoreStyle(r.score)}"`}>${r.score === null ? '—' : r.score}</td>
+      ${goalCells}
     </tr>`;
   }).join('');
   const perfTable = perf.length === 0
     ? '<div class="log-empty">No days logged yet.</div>'
-    : `<div class="stats-table-wrap" style="margin-bottom:24px;">
+    : `<div class="stats-table-wrap" style="margin-bottom:12px;">
       <table class="stats-table">
-        <thead><tr><th>Day</th><th>Cars</th><th>Revenue</th><th>Attendance</th><th>Score</th></tr></thead>
+        <thead><tr><th>Day</th><th>Cars</th><th>Revenue</th><th>Attendance</th><th>Score</th>${showGoal ? '<th>Goal to date</th><th>vs Goal</th>' : ''}</tr></thead>
         <tbody>${perfRows}</tbody>
       </table>
     </div>`;
+
+  /* Running total per year, plus the goal pace when one is set. */
+  const cumSeries = cumulativeByYear(allDaysRaw, totalsYear);
+  if(showGoal) cumSeries.push({ key:'goal', name:'Goal pace', color:'#8A6A00',
+                                dash:'4 3', width:1.6, values: cumGoal });
+  const cumChart = cumSeries.length ? `
+    <div class="stats-house-title">Running total by fair day</div>
+    <div class="chart-wrap">
+      ${lineChart(cumSeries, FAIR_DAY_LABELS, { height:180, yFormat: moneyAxis, dots:true })}
+      ${chartLegend(cumSeries)}
+    </div>
+    <div class="stats-sub" style="display:block; margin:0 2px 24px 2px;">Day of the fair along the bottom. Tap a year to pick out its line.</div>` : '';
+
+  const spotSeries = acrossYears ? spotDayAverages(allDaysRaw) : null;
+  const spotChart = spotSeries ? `
+    <div class="section-title">Average Earned per Spot, by Fair Day</div>
+    <div class="stats-sub" style="display:block; margin:-4px 2px 8px 2px;">Each line is one spot — what it took on that day of the fair, averaged over every year on record. 1367 is drawn solid, 1372 dotted. Tap a name to pick out its line.</div>
+    <div class="chart-wrap">
+      ${lineChart(spotSeries, FAIR_DAY_LABELS, { height:215, yFormat: moneyAxis })}
+      ${chartLegend(spotSeries)}
+    </div>
+    <div class="stats-sub" style="display:block; margin:0 2px 24px 2px;">Day of the fair along the bottom.</div>` : '';
+
+  const goalPanel = acrossYears ? '' : `
+    <button class="goal-toggle${goalMode ? ' on' : ''}" id="goalToggle">${goalMode ? 'Goal mode · on' : 'Goal mode'}</button>
+    ${goalMode ? `
+    <div class="goal-box">
+      <div class="field-label">Whole-fair goal for ${totalsYear}</div>
+      <input type="number" inputmode="decimal" class="custom-input" id="goalInput" placeholder="e.g. 16000" value="${goal || ''}">
+      <button class="log-btn" id="goalSave" style="margin-top:10px;">${goal ? 'Update goal' : 'Set goal'}</button>
+      <div class="stats-sub" style="display:block; margin-top:10px;">${shapeInfo
+        ? `Daily targets follow how your takings have actually fallen across the fair in ${shapeInfo.years} prior year${shapeInfo.years === 1 ? '' : 's'} — not an even split. Quiet mid-week days get a smaller share, the closing weekend a larger one.`
+        : 'Needs a completed prior year before daily targets can be worked out.'}</div>
+    </div>` : ''}`;
 
   const spotRows = (houseId) => byHouse[houseId].map(s => `
     <tr>
@@ -1355,6 +1633,7 @@ async function renderTotalsPage(){
       <td>${s.count}</td>
       <td>${money(s.revenue)}</td>
       <td>${s.perCar === null ? '—' : money(s.perCar)}</td>
+      <td>${numDays > 0 ? money(s.revenue / numDays) : '—'}</td>
       <td>${s.avgPerDay.toFixed(1)}</td>
       <td>${s.maxDay}</td>
       <td>${formatMinutes(s.avgGap)}</td>
@@ -1402,7 +1681,7 @@ async function renderTotalsPage(){
     <div class="stats-house-title">1367 Asbury</div>
     <div class="stats-table-wrap">
       <table class="stats-table">
-        <thead><tr><th>Spot</th><th>Cars</th><th>Total</th><th>$/Car</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
+        <thead><tr><th>Spot</th><th>Cars</th><th>Total</th><th>$/Car</th><th>$/Day</th><th>Cars/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
         <tbody>${spotRows('1367')}</tbody>
       </table>
     </div>
@@ -1410,20 +1689,57 @@ async function renderTotalsPage(){
     <div class="stats-house-title">1372 Asbury</div>
     <div class="stats-table-wrap" style="margin-bottom:24px;">
       <table class="stats-table">
-        <thead><tr><th>Spot</th><th>Cars</th><th>Total</th><th>$/Car</th><th>Avg/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
+        <thead><tr><th>Spot</th><th>Cars</th><th>Total</th><th>$/Car</th><th>$/Day</th><th>Cars/Day</th><th>Max/Day</th><th>Avg Gap</th></tr></thead>
         <tbody>${spotRows('1372')}</tbody>
       </table>
     </div>
 
+    ${spotChart}
     <div class="section-title">Daily Performance</div>
     <div class="stats-sub" style="display:block; margin:-4px 2px 8px 2px;">
       How each day's takings compared with State Fair attendance. 100 means the day earned exactly what its share of the crowd predicted — green beat the crowd, red lagged it. A dash means no attendance figure is on file for that date.
     </div>
+    ${goalPanel}
     ${perfTable}
+    ${cumChart}
   `;
 
   populateAdjList('depositsList', deposits);
   populateAdjList('expensesList', expenses);
+
+  /* Tapping a legend name isolates that line. Clearing the inline opacity lets
+     each line fall back to whatever the series set (dimmed years stay dim). */
+  main.querySelectorAll('.chart-wrap').forEach(wrap=>{
+    wrap.querySelectorAll('.legend-key').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const key = btn.dataset.key;
+        if(wrap.dataset.focus === key) delete wrap.dataset.focus;
+        else wrap.dataset.focus = key;
+        const f = wrap.dataset.focus;
+        wrap.querySelectorAll('path.chart-line, circle').forEach(el=>{
+          el.style.opacity = (!f || el.dataset.key === f) ? '' : '0.07';
+        });
+        wrap.querySelectorAll('.legend-key').forEach(li=>{
+          li.style.opacity = (!f || li.dataset.key === f) ? '' : '0.3';
+        });
+      });
+    });
+  });
+
+  const goalToggleBtn = document.getElementById('goalToggle');
+  if(goalToggleBtn) goalToggleBtn.addEventListener('click', async ()=>{
+    goalMode = !goalMode;
+    await renderTotalsPage();
+  });
+  const goalSaveBtn = document.getElementById('goalSave');
+  if(goalSaveBtn) goalSaveBtn.addEventListener('click', async ()=>{
+    const v = Math.round(parseFloat(document.getElementById('goalInput').value));
+    if(!v || v <= 0){ showToast('Enter a goal amount'); return; }
+    if(!(await saveGoal(totalsYear, v))) return;
+    goalAmounts[totalsYear] = v;
+    showToast(`Goal for ${totalsYear} set to ${money(v)}`);
+    await renderTotalsPage();
+  });
 
   main.querySelectorAll('.year-tab').forEach(b=>{
     b.addEventListener('click', async ()=>{
