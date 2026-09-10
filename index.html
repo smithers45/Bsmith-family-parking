@@ -91,9 +91,29 @@
     background: var(--asphalt-soft); color: var(--chalk); border:none; width:34px; height:34px; border-radius:8px;
     font-size:1.1rem; display:flex; align-items:center; justify-content:center;
   }
-  .date-label{ display:flex; flex-direction:column; align-items:center; min-width:128px; }
+  /* Must out-rank '.date-nav button' above, which fixes arrows at 34x34. */
+  .date-nav button.date-label{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    width:auto; height:auto; min-width:128px;
+    background:none; border:none; border-radius:0; font-size:inherit;
+    font-family:inherit; -webkit-appearance:none; appearance:none;
+    padding:0 2px 2px 2px; color:inherit;
+    border-bottom:1px dotted rgba(240,236,224,0.3);
+  }
   .date-day{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.05rem; line-height:1.15; }
-  .date-sub{ font-size:0.66rem; color:#B9B4A4; line-height:1.2; }
+  .date-sub{ font-size:0.66rem; color:#B9B4A4; line-height:1.25; text-align:center; }
+  /* Kept out of the way; the tap on the date opens it through showPicker(). */
+  .date-picker{
+    position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;
+    border:none; padding:0; margin:0;
+  }
+  /* Fallback for anything that cannot open a picker programmatically: the
+     field is shown in place so the date can still be changed. */
+  .date-picker.visible{
+    position:static; width:auto; height:auto; opacity:1; pointer-events:auto;
+    font-size:0.8rem; padding:5px 7px; border-radius:7px;
+    border:1px solid var(--hairline); background:var(--chalk); color:var(--asphalt);
+  }
   .today-total{ text-align:right; }
   .today-total .amt{ font-family:'Barlow Condensed'; font-size:1.9rem; font-weight:700; line-height:1; color: var(--line-yellow); }
   .today-total .lbl{ font-size:0.68rem; color:#B9B4A4; text-transform:none; }
@@ -401,10 +421,11 @@
   <div class="date-row">
     <div class="date-nav">
       <button id="prevDay">‹</button>
-      <span class="date-label">
+      <button class="date-label" id="dateLabel" title="Pick a date">
         <span class="date-day" id="dateDay">—</span>
         <span class="date-sub" id="dateSub"></span>
-      </span>
+      </button>
+      <input type="date" id="datePicker" class="date-picker" aria-label="Jump to a date">
       <button id="nextDay">›</button>
     </div>
     <div class="today-total">
@@ -728,7 +749,7 @@ function fairDayLabel(d){
 function dateSubLabel(d){
   const today = new Date();
   const isToday = dateKey(d) === dateKey(today);
-  const opts = { weekday:'short', month:'short', day:'numeric' };
+  const opts = { weekday:'short', month:'short', day:'numeric', year:'numeric' };
   return d.toLocaleDateString('en-US', opts) + (isToday ? ' · Today' : '');
 }
 function money(n){ return '$' + Math.round(n).toLocaleString(); }
@@ -1921,6 +1942,31 @@ document.getElementById('importSaveBtn').addEventListener('click', async ()=>{
   }catch(e){
     showToast(e.message || 'Could not import that data');
   }
+});
+
+/* Tapping the date opens the device's own calendar, which is the easiest way
+   to jump to another year. Falls back to showing the field inline if the
+   browser will not open a picker from script. */
+function openDatePicker(){
+  const p = document.getElementById('datePicker');
+  p.value = dateKey(currentDate);
+  if(typeof p.showPicker === 'function'){
+    try{ p.showPicker(); return; }catch(e){ /* not allowed here - fall through */ }
+  }
+  p.classList.add('visible');
+  p.focus();
+}
+
+document.getElementById('dateLabel').addEventListener('click', openDatePicker);
+document.getElementById('datePicker').addEventListener('change', (e)=>{
+  const v = e.target.value;
+  e.target.classList.remove('visible');
+  if(!v) return;
+  currentDate = dateFromKey(v);   // built locally, so no UTC day shift
+  loadDay();
+});
+document.getElementById('datePicker').addEventListener('blur', (e)=>{
+  e.target.classList.remove('visible');
 });
 
 document.getElementById('prevDay').addEventListener('click', ()=>{
