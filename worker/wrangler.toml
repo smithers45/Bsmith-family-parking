@@ -1,0 +1,25 @@
+name = "asbury-parking"
+main = "index.js"
+compatibility_date = "2026-05-01"
+
+# Sweeps abandoned checkout holds every 10 minutes so spaces free up again.
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Non-secret settings. Edit these to match your setup, then deploy.
+[vars]
+SQUARE_ENV = "sandbox"                     # switch to "production" when live
+SQUARE_LOCATION_ID = "PUT_LOCATION_ID_HERE"
+FIREBASE_DB_URL = "https://bsmith-family-parking-default-rtdb.firebaseio.com"
+ALLOWED_ORIGINS = "https://smithers45.github.io"
+SUCCESS_URL = "https://smithers45.github.io/Bsmith-family-parking/reserve/"
+TEXT_NUMBER = "651-329-0846"
+
+# Must exactly match the notification URL you register in Square, because the
+# signature is computed over (URL + body).
+SQUARE_WEBHOOK_URL = "https://asbury-parking.YOUR-SUBDOMAIN.workers.dev/square-webhook"
+
+# Secrets are NOT stored here. Set them with wrangler:
+#   wrangler secret put SQUARE_ACCESS_TOKEN
+#   wrangler secret put SQUARE_WEBHOOK_SIGNATURE_KEY
+#   wrangler secret put FIREBASE_SERVICE_ACCOUNT
