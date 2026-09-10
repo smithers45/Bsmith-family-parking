@@ -148,6 +148,8 @@
     border-radius:11px; padding:12px 14px; margin:2px 0 15px; font-size:0.85rem;
   }
   .text-us strong{ display:block; font-family:'Barlow Condensed'; font-size:1.05rem; margin-bottom:2px; }
+  .tel-link{ color:var(--pine); font-weight:700; white-space:nowrap; }
+  .text-us .tel-link{ color:#6B5200; }
   .err{ color:#8E2A20; font-size:0.82rem; margin:0 0 10px; display:none; font-weight:600; }
   .cancel{
     width:100%; margin-top:8px; padding:11px 0; border:none; background:none;
@@ -190,8 +192,9 @@
     <ol class="steps">
       <li>Pick a day and an option, tell us who's coming and what you're driving,
         then pay by card. You'll get a receipt by email.</li>
-      <li><strong>Text us when you're 10 minutes away.</strong> The number is on your
-        receipt. This is the important one — it means someone is waiting at the gate
+      <li><strong>Text us when you're 10 minutes away.</strong>
+        <span id="howTextNum"></span>
+        This is the important one — it means someone is waiting at the gate
         instead of you circling the block.</li>
       <li>Give your name at the gate and we'll walk you straight to your spot.</li>
     </ol>
@@ -209,7 +212,7 @@
     <div><strong style="color:var(--chalk);">Asbury St Parking</strong></div>
     <div style="margin-top:6px;">
       A family operation running two yards during the Great Minnesota Get-Together.
-      Questions about a booking? Reply to your receipt email and we'll get back to you.
+      Questions about a booking? <span id="footContact"></span>
     </div>
     <div style="margin-top:10px;" id="footNote"></div>
   </div>
@@ -296,7 +299,7 @@ const CHECKOUT_ENDPOINT = "";
 
 /* The number guests text when they're close. Can also be set in
    public/config/textNumber so it changes without touching this file. */
-const TEXT_NUMBER = "";
+const TEXT_NUMBER = "651-329-0846";
 
 /* Arrival times each option allows, so nobody books Late Night and then tells
    us they'll be there at nine in the morning. */
@@ -533,6 +536,12 @@ function renderWholeFair(){
 }
 
 function renderAll(){
+  const link = textNumberLink();
+  document.getElementById('howTextNum').innerHTML =
+    link ? 'Text ' + link + '.' : 'The number is on your receipt.';
+  document.getElementById('footContact').innerHTML =
+    link ? 'Text ' + link + ' or reply to your receipt email.'
+         : "Reply to your receipt email and we'll get back to you.";
   document.getElementById('fairDates').textContent = days.length
     ? days[0].toLocaleDateString('en-US',{ month:'long', day:'numeric' }) + ' \u2013 ' +
       days[11].toLocaleDateString('en-US',{ month:'long', day:'numeric', year:'numeric' }) +
@@ -558,6 +567,16 @@ function windowFor(req){
 }
 function textNumber(){
   return TEXT_NUMBER || (config && config.textNumber) || '';
+}
+/* Rendered as an sms: link so a phone can just tap it. */
+function textNumberLink(){
+  const num = textNumber();
+  if(!num) return '';
+  const d = digitsOnly(num);
+  const href = d.length === 10 ? 'sms:+1' + d : (d ? 'sms:' + d : '');
+  return href
+    ? '<a class="tel-link" href="' + href + '">' + esc(num) + '</a>'
+    : esc(num);
 }
 function toMinutes(t){
   const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
@@ -594,8 +613,8 @@ function openDetails(req){
      toMinutes(arr.value) > toMinutes(w.max)) arr.value = w.min;
   const num = textNumber();
   document.getElementById('dTextUs').innerHTML = num
-    ? "<strong>Please text us when you're 10 minutes away</strong>Text " + esc(num) +
-      " and someone will be at the gate ready to walk you in."
+    ? "<strong>Please text us when you're 10 minutes away</strong>Text " +
+      textNumberLink() + " and someone will be at the gate ready to walk you in."
     : "<strong>Please text us when you're 10 minutes away</strong>The number is on " +
       "your receipt. It means someone is at the gate ready to walk you in.";
   document.getElementById('dErr').style.display = 'none';
