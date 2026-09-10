@@ -194,9 +194,10 @@
         then pay by card. You'll get a receipt by email.</li>
       <li><strong>Text us when you're 10 minutes away.</strong>
         <span id="howTextNum"></span>
-        This is the important one — it means someone is waiting at the gate
-        instead of you circling the block.</li>
-      <li>Give your name at the gate and we'll walk you straight to your spot.</li>
+        This is the important one — it means one of us is already out front
+        waiting for you instead of you circling the block.</li>
+      <li>We'll be standing on the street in front of the house. Give your name and
+        we'll bring you straight in to your spot.</li>
     </ol>
     <div class="note" style="margin-top:10px;">
       Both yards are on Asbury Street. Exact addresses and arrival notes are on your
@@ -614,9 +615,9 @@ function openDetails(req){
   const num = textNumber();
   document.getElementById('dTextUs').innerHTML = num
     ? "<strong>Please text us when you're 10 minutes away</strong>Text " +
-      textNumberLink() + " and someone will be at the gate ready to walk you in."
+      textNumberLink() + " and one of us will be out front on the street to meet you."
     : "<strong>Please text us when you're 10 minutes away</strong>The number is on " +
-      "your receipt. It means someone is at the gate ready to walk you in.";
+      "your receipt. One of us will be out front on the street to meet you.";
   document.getElementById('dErr').style.display = 'none';
   document.getElementById('detailsOverlay').classList.add('open');
   setTimeout(()=>{ document.getElementById('dName').focus(); }, 140);
