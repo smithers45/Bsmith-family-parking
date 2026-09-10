@@ -84,7 +84,7 @@
   .auth-error{ color:#B3261E; font-size:0.8rem; margin-top:10px; text-align:center; }
 
   .date-row{
-    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
   }
   .date-nav{ display:flex; align-items:center; gap:10px; }
   .date-nav button{
@@ -117,6 +117,14 @@
   .today-total{ text-align:right; }
   .today-total .amt{ font-family:'Barlow Condensed'; font-size:1.9rem; font-weight:700; line-height:1; color: var(--line-yellow); }
   .today-total .lbl{ font-size:0.68rem; color:#B9B4A4; text-transform:none; }
+  .head-stats{ display:flex; align-items:flex-start; gap:12px; margin-left:auto; }
+  /* Goal mode adds two more figures, so the three share the room. */
+  .head-stats.with-goal{ gap:11px; }
+  .head-stats.with-goal .amt{ font-size:1.2rem; }
+  .head-stats.with-goal .lbl{ font-size:0.56rem; line-height:1.15; max-width:56px; margin-left:auto; }
+  #todayGoal{ color:#CFCABA; }
+  .amt.pace-ahead{ color:#7FD69B; }
+  .amt.pace-behind{ color:#FF9B8F; }
 
   main{ padding: 16px; max-width: 620px; margin: 0 auto; }
 
@@ -428,9 +436,19 @@
       <input type="date" id="datePicker" class="date-picker" aria-label="Jump to a date">
       <button id="nextDay">›</button>
     </div>
-    <div class="today-total">
-      <div class="amt" id="dayTotal">$0</div>
-      <div class="lbl">today's total</div>
+    <div class="head-stats" id="headStats">
+      <div class="today-total">
+        <div class="amt" id="dayTotal">$0</div>
+        <div class="lbl">today's total</div>
+      </div>
+      <div class="today-total" id="todayGoalStat" style="display:none;">
+        <div class="amt" id="todayGoal">$0</div>
+        <div class="lbl">today's goal</div>
+      </div>
+      <div class="today-total" id="yearPaceStat" style="display:none;">
+        <div class="amt" id="yearPace">$0</div>
+        <div class="lbl">ahead / behind</div>
+      </div>
     </div>
   </div>
 </header>
@@ -785,6 +803,7 @@ async function loadDay(){
     dayLoadOk = false;
     showToast('Could not load this day — check your connection');
   }
+  await computeHeadGoal();
   render();
 }
 
@@ -940,6 +959,7 @@ function render(){
   }
 
   document.getElementById('dayTotal').textContent = money(dayTotal);
+  updateHeadGoal(dayTotal);
   document.getElementById('house1367Total').textContent = money(houseTotals['1367']);
   document.getElementById('house1372Total').textContent = money(houseTotals['1372']);
 
@@ -1520,8 +1540,12 @@ function revenueShape(allDaysRaw, excludeYear){
 
 /* ---------- Goal mode ---------- */
 
-let goalMode = false;
-let goalAmounts = {};   // year -> whole-fair goal, shared through Firebase
+/* Whether to show the goal figures is a per-device preference; the goal
+   amounts themselves are shared through Firebase. */
+let goalMode = localStorage.getItem('goalMode') === '1';
+let goalAmounts = {};   // year -> whole-fair goal
+let goalsRef = null;
+let headGoal = null;    // { dayGoal, cumGoal, priorActual } for the day on screen
 
 async function loadGoals(){
   try{
@@ -1529,6 +1553,62 @@ async function loadGoals(){
     goalAmounts = (snap.exists() && snap.val()) ? snap.val() : {};
   }catch(e){ /* offline - leave whatever is already known */ }
 }
+function watchGoals(){
+  if(!db || goalsRef) return;
+  goalsRef = db.ref('goals');
+  goalsRef.on('value', (snap)=>{
+    goalAmounts = (snap.exists() && snap.val()) ? snap.val() : {};
+    computeHeadGoal().then(render);
+  }, ()=>{ /* offline - keep whatever is already known */ });
+}
+
+/* The two extra header figures for the day on screen. Earlier days come from
+   the database; today's own takings are added in render() from what is on
+   screen, so the pace moves as cars are logged. */
+async function computeHeadGoal(){
+  headGoal = null;
+  if(!goalMode || !db) return;
+  const year = String(currentDate.getFullYear());
+  const goal = Number(goalAmounts[year]) || 0;
+  if(goal <= 0) return;
+  const fd = fairDayNumber(currentDate);
+  if(fd < 1 || fd > 12) return;      // outside the fair there is nothing to pace
+  let allDaysRaw;
+  try{ allDaysRaw = await fetchAllDays(); }catch(e){ return; }
+  const info = revenueShape(allDaysRaw, year);
+  if(!info) return;                  // needs one completed prior year
+  let cumGoal = 0;
+  for(let i = 0; i < fd; i++) cumGoal += goal * info.shape[i];
+  let priorActual = 0;
+  Object.keys(allDaysRaw).forEach(k=>{
+    if(k.slice(0,4) !== year) return;
+    const d = FAIR_DAY_OF_KEY[k];
+    if(!d || d >= fd) return;        // today is counted from the screen instead
+    priorActual += (allDaysRaw[k] || []).reduce((s,tx)=> s + (tx.amount||0), 0);
+  });
+  headGoal = { dayGoal: goal * info.shape[fd-1], cumGoal, priorActual };
+}
+
+function updateHeadGoal(dayTotal){
+  const stats = document.getElementById('headStats');
+  const goalStat = document.getElementById('todayGoalStat');
+  const paceStat = document.getElementById('yearPaceStat');
+  if(!headGoal){
+    stats.classList.remove('with-goal');
+    goalStat.style.display = 'none';
+    paceStat.style.display = 'none';
+    return;
+  }
+  stats.classList.add('with-goal');
+  goalStat.style.display = '';
+  paceStat.style.display = '';
+  document.getElementById('todayGoal').textContent = money(headGoal.dayGoal);
+  const pace = headGoal.priorActual + dayTotal - headGoal.cumGoal;
+  const el = document.getElementById('yearPace');
+  el.textContent = (pace >= 0 ? '+' : '\u2212') + money(Math.abs(pace));
+  el.className = 'amt ' + (pace >= 0 ? 'pace-ahead' : 'pace-behind');
+}
+
 async function saveGoal(year, amount){
   try{
     if(!amount || amount <= 0) await db.ref('goals/' + year).remove();
@@ -1610,20 +1690,10 @@ async function renderTotalsPage(){
     shapeInfo.shape.forEach(f=>{ run += goal * f; cumGoal.push(run); });
   }
 
-  let lastFairDay = null, runActual = 0;
+  let lastFairDay = null;
   const perfRows = perf.map(r => {
     const newGroup = acrossYears && r.fairDay !== lastFairDay;
     lastFairDay = r.fairDay;
-    let goalCells = '';
-    if(showGoal){
-      runActual += r.revenue;
-      const g = r.fairDay ? cumGoal[r.fairDay - 1] : null;
-      const diff = g === null ? null : runActual - g;
-      goalCells =
-        `<td>${g === null ? '\u2014' : money(g)}</td>` +
-        `<td class="${diff === null ? '' : (diff >= 0 ? 'goal-ahead' : 'goal-behind')}">` +
-        `${diff === null ? '\u2014' : (diff >= 0 ? '+' : '\u2212') + money(Math.abs(diff))}</td>`;
-    }
     return `
     <tr${newGroup ? ' class="group-start"' : ''}>
       <td>${perfDayLabel(r, acrossYears)}</td>
@@ -1631,14 +1701,13 @@ async function renderTotalsPage(){
       <td>${money(r.revenue)}</td>
       <td>${r.attendance === null ? '—' : r.attendance.toLocaleString()}</td>
       <td${r.score === null ? '' : ` style="${scoreStyle(r.score)}"`}>${r.score === null ? '—' : r.score}</td>
-      ${goalCells}
     </tr>`;
   }).join('');
   const perfTable = perf.length === 0
     ? '<div class="log-empty">No days logged yet.</div>'
     : `<div class="stats-table-wrap" style="margin-bottom:12px;">
       <table class="stats-table">
-        <thead><tr><th>Day</th><th>Cars</th><th>Revenue</th><th>Attendance</th><th>Score</th>${showGoal ? '<th>Goal to date</th><th>vs Goal</th>' : ''}</tr></thead>
+        <thead><tr><th>Day</th><th>Cars</th><th>Revenue</th><th>Attendance</th><th>Score</th></tr></thead>
         <tbody>${perfRows}</tbody>
       </table>
     </div>`;
@@ -1674,7 +1743,7 @@ async function renderTotalsPage(){
       <input type="number" inputmode="decimal" class="custom-input" id="goalInput" placeholder="e.g. 16000" value="${goal || ''}">
       <button class="log-btn" id="goalSave" style="margin-top:10px;">${goal ? 'Update goal' : 'Set goal'}</button>
       <div class="stats-sub" style="display:block; margin-top:10px;">${shapeInfo
-        ? `Daily targets follow how your takings have actually fallen across the fair in ${shapeInfo.years} prior year${shapeInfo.years === 1 ? '' : 's'} — not an even split. Quiet mid-week days get a smaller share, the closing weekend a larger one.`
+        ? `Daily targets follow how your takings have actually fallen across the fair in ${shapeInfo.years} prior year${shapeInfo.years === 1 ? '' : 's'} — not an even split. Quiet mid-week days get a smaller share, the closing weekend a larger one. With goal mode on, the logging screen shows today's goal and how far ahead or behind the fair is overall.`
         : 'Needs a completed prior year before daily targets can be worked out.'}</div>
     </div>` : ''}`;
 
@@ -1780,7 +1849,9 @@ async function renderTotalsPage(){
   const goalToggleBtn = document.getElementById('goalToggle');
   if(goalToggleBtn) goalToggleBtn.addEventListener('click', async ()=>{
     goalMode = !goalMode;
+    try{ localStorage.setItem('goalMode', goalMode ? '1' : '0'); }catch(e){}
     await renderTotalsPage();
+    computeHeadGoal().then(render);   // keep the logging screen in step
   });
   const goalSaveBtn = document.getElementById('goalSave');
   if(goalSaveBtn) goalSaveBtn.addEventListener('click', async ()=>{
@@ -1790,6 +1861,7 @@ async function renderTotalsPage(){
     goalAmounts[totalsYear] = v;
     showToast(`Goal for ${totalsYear} set to ${money(v)}`);
     await renderTotalsPage();
+    computeHeadGoal().then(render);
   });
 
   main.querySelectorAll('.year-tab').forEach(b=>{
@@ -2081,6 +2153,7 @@ if(firebaseInitError){
       if(!appInitialized){
         appInitialized = true;
         buildDiagrams();
+        watchGoals();
         migrateLocalDataIfNeeded().then(loadDay);
       }
     } else {
