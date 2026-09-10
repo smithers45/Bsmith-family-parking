@@ -1334,27 +1334,41 @@ function niceCeil(v){
   return 10 * mag;
 }
 
-/* series: [{ key, name, color, dash, width, opacity, values:[num|null ...] }]
-   Drawn as an SVG with a viewBox so it scales to any phone width. */
+/* series: [{ key, name, color, dash, width, opacity, axis, values:[num|null ...] }]
+   axis:'right' puts a series on its own scale, for a line whose magnitude is
+   nothing like the others. Drawn as SVG with a viewBox so it scales to any
+   phone width. */
 function lineChart(series, xLabels, opts){
   opts = opts || {};
   const W = 320, H = opts.height || 175;
-  const padL = 42, padR = 8, padT = 8, padB = 22;
+  const hasRight = series.some(s => s.axis === 'right');
+  const padL = 42, padR = hasRight ? 38 : 8, padT = 8, padB = 22;
   const iw = W - padL - padR, ih = H - padT - padB;
 
-  let maxY = 0;
-  series.forEach(s => s.values.forEach(v => { if(v !== null && v !== undefined && v > maxY) maxY = v; }));
-  maxY = niceCeil(maxY);
+  let maxL = 0, maxR = 0;
+  series.forEach(s => s.values.forEach(v => {
+    if(v === null || v === undefined) return;
+    if(s.axis === 'right'){ if(v > maxR) maxR = v; }
+    else if(v > maxL) maxL = v;
+  }));
+  maxL = niceCeil(maxL);
+  maxR = hasRight ? niceCeil(maxR) : 0;
 
   const X = i => padL + (xLabels.length > 1 ? i * iw / (xLabels.length - 1) : iw / 2);
-  const Y = v => padT + ih - (v / maxY) * ih;
+  const YL = v => padT + ih - (v / maxL) * ih;
+  const YR = v => padT + ih - (v / maxR) * ih;
+  const yFor = s => (s.axis === 'right' ? YR : YL);
   const fmt = opts.yFormat || (v => String(Math.round(v)));
+  const fmtR = opts.yFormatRight || fmt;
 
   let g = '';
   for(let t = 0; t <= 4; t++){
-    const v = maxY * t / 4, yy = Y(v).toFixed(1);
+    const v = maxL * t / 4, y = YL(v), yy = y.toFixed(1);
     g += `<line class="chart-grid" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
-    g += `<text class="chart-axis" x="${padL - 4}" y="${(Y(v) + 2.5).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`;
+    g += `<text class="chart-axis" x="${padL - 4}" y="${(y + 2.5).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`;
+    if(hasRight){
+      g += `<text class="chart-axis" x="${W - padR + 4}" y="${(y + 2.5).toFixed(1)}" text-anchor="start">${fmtR(maxR * t / 4)}</text>`;
+    }
   }
   xLabels.forEach((lb, i)=>{
     if(xLabels.length > 8 && i % 2 === 1 && i !== xLabels.length - 1) return;
@@ -1363,6 +1377,7 @@ function lineChart(series, xLabels, opts){
 
   let paths = '';
   series.forEach(s=>{
+    const Y = yFor(s);
     let d = '', pen = false;
     s.values.forEach((v,i)=>{
       if(v === null || v === undefined){ pen = false; return; }
@@ -1428,10 +1443,24 @@ function spotDayAverages(allDaysRaw){
     });
   });
   const counts = yearsOnDay.map(o => Object.keys(o).length);
-  return SPOT_SERIES.map(s=>({
+  const series = SPOT_SERIES.map(s=>({
     key: s.key, name: s.house + ' ' + s.label, color: s.color, dash: s.dash,
     values: (sums[s.key] || new Array(12).fill(0)).map((v,i)=> counts[i] ? v / counts[i] : null)
   }));
+
+  /* All fifteen combined. It runs roughly ten times any single spot, so it
+     gets its own scale on the right rather than flattening every other line
+     into the floor of the chart. */
+  const combined = new Array(12).fill(null);
+  for(let i = 0; i < 12; i++){
+    if(!counts[i]) continue;
+    let sum = 0;
+    Object.keys(sums).forEach(k=>{ sum += sums[k][i]; });
+    combined[i] = sum / counts[i];
+  }
+  series.push({ key: 'all-spots', name: 'All spots (right scale)',
+                color: '#23262B', width: 2.8, values: combined, axis: 'right' });
+  return series;
 }
 
 const YEAR_COLORS = ['#C0392B', '#1E88A8', '#3F9D57', '#6B4FBB', '#D4A017'];
@@ -1629,14 +1658,15 @@ async function renderTotalsPage(){
   const spotSeries = acrossYears ? spotDayAverages(allDaysRaw) : null;
   const spotChart = spotSeries ? `
     <div class="section-title">Average Earned per Spot, by Fair Day</div>
-    <div class="stats-sub" style="display:block; margin:-4px 2px 8px 2px;">Each line is one spot — what it took on that day of the fair, averaged over every year on record. 1367 is drawn solid, 1372 dotted. Tap a name to pick out its line.</div>
+    <div class="stats-sub" style="display:block; margin:-4px 2px 8px 2px;">Each line is one spot — what it took on that day of the fair, averaged over every year on record. 1367 is drawn solid and 1372 dotted. The heavy dark line is all fifteen combined, read against the scale on the right. Tap a name to pick out its line.</div>
     <div class="chart-wrap">
-      ${lineChart(spotSeries, FAIR_DAY_LABELS, { height:215, yFormat: moneyAxis })}
+      ${lineChart(spotSeries, FAIR_DAY_LABELS, { height:215, yFormat: moneyAxis, yFormatRight: moneyAxis })}
       ${chartLegend(spotSeries)}
     </div>
     <div class="stats-sub" style="display:block; margin:0 2px 24px 2px;">Day of the fair along the bottom.</div>` : '';
 
-  const goalPanel = acrossYears ? '' : `
+  const goalPanel = acrossYears ? `
+    <div class="stats-sub" style="display:block; margin:0 2px 12px 2px;">Goal mode sits on the individual year tabs — a goal belongs to one fair, so there is nothing for it to track here.</div>` : `
     <button class="goal-toggle${goalMode ? ' on' : ''}" id="goalToggle">${goalMode ? 'Goal mode · on' : 'Goal mode'}</button>
     ${goalMode ? `
     <div class="goal-box">
