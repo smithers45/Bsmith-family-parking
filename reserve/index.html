@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reserve Parking · Asbury St · Minnesota State Fair</title>
+<meta name="description" content="Reserve a parking spot two blocks from the Minnesota State Fair. Two private yards on Asbury Street.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --asphalt:#23262B; --asphalt-soft:#33373E; --chalk:#FBF8F1; --putty:#F1ECE0;
+    --hairline:#D8D2C2; --text-dim:#6B6558; --line-yellow:#F2C230;
+    --vest-orange:#E25A02; --vest-orange-dark:#C24B02;
+    --pine:#1E5631; --pine-soft:#E6F0E9;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body{
+    margin:0; background:var(--putty); color:var(--asphalt);
+    font-family:'Inter',system-ui,sans-serif; font-size:15px; line-height:1.45;
+  }
+  header{
+    background:var(--asphalt); color:var(--chalk);
+    padding:20px 16px 22px; border-bottom:5px solid var(--line-yellow);
+  }
+  .wrap{ max-width:620px; margin:0 auto; padding:0 16px; }
+  header .wrap{ padding:0; }
+  h1{
+    font-family:'Barlow Condensed'; font-weight:700; font-size:1.85rem;
+    margin:0 0 4px; line-height:1.05; letter-spacing:0.01em;
+  }
+  .kicker{ font-size:0.7rem; text-transform:uppercase; letter-spacing:0.14em; color:var(--line-yellow); font-weight:600; }
+  .sub{ font-size:0.86rem; color:#C9C4B4; margin-top:8px; }
+  main{ padding:20px 0 48px; }
+  h2{
+    font-family:'Barlow Condensed'; font-weight:600; font-size:1.15rem;
+    margin:26px 0 10px; letter-spacing:0.02em;
+  }
+  .card{
+    background:var(--chalk); border:1px solid var(--hairline);
+    border-radius:14px; padding:16px; margin-bottom:12px;
+  }
+  .note{ font-size:0.8rem; color:var(--text-dim); }
+
+  .day-row{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+  .day-btn{
+    flex:1 1 auto; min-width:64px; padding:8px 6px; border-radius:9px;
+    border:2px solid var(--hairline); background:var(--chalk);
+    font-family:'Barlow Condensed'; font-weight:700; font-size:0.9rem;
+    color:var(--text-dim); cursor:pointer; line-height:1.15;
+  }
+  .day-btn .dow{ display:block; font-size:0.62rem; font-family:'Inter'; font-weight:500; letter-spacing:0.04em; }
+  .day-btn.selected{ border-color:var(--vest-orange); background:#FDECE0; color:var(--vest-orange-dark); }
+
+  .tier{
+    background:var(--chalk); border:1px solid var(--hairline);
+    border-radius:14px; padding:15px 16px; margin-bottom:11px;
+  }
+  .tier-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .tier-name{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.2rem; }
+  .tier-price{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.6rem; color:var(--pine); white-space:nowrap; }
+  .tier-rule{ font-size:0.82rem; color:var(--text-dim); margin-top:3px; }
+  .tier-left{ font-size:0.74rem; color:var(--vest-orange-dark); font-weight:600; margin-top:7px; }
+  .tier-left.none{ color:var(--text-dim); font-weight:500; }
+  .shift-row{ display:flex; gap:8px; margin-top:11px; }
+  .shift-btn{
+    flex:1; padding:9px 4px; border-radius:9px; border:2px solid var(--hairline);
+    background:var(--chalk); font-family:'Barlow Condensed'; font-weight:700;
+    font-size:0.92rem; color:var(--text-dim); cursor:pointer; line-height:1.2;
+  }
+  .shift-btn .when{ display:block; font-family:'Inter'; font-weight:500; font-size:0.62rem; }
+  .shift-btn.selected{ border-color:var(--pine); background:var(--pine-soft); color:var(--pine); }
+
+  .book-btn{
+    width:100%; margin-top:12px; padding:13px 0; border:none; border-radius:11px;
+    background:var(--vest-orange); color:#fff; font-weight:700; font-size:0.96rem; cursor:pointer;
+  }
+  .book-btn:active{ background:var(--vest-orange-dark); }
+  .book-btn:disabled{ background:#C9C4B4; cursor:default; }
+
+  .wf-spot{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:11px 0; border-top:1px solid var(--hairline);
+  }
+  .wf-spot:first-of-type{ border-top:none; }
+  .wf-name{ font-family:'Barlow Condensed'; font-weight:700; font-size:1.05rem; }
+  .wf-sub{ font-size:0.74rem; color:var(--text-dim); }
+  .pill{
+    font-size:0.68rem; font-weight:700; padding:4px 10px; border-radius:20px;
+    text-transform:uppercase; letter-spacing:0.05em; white-space:nowrap;
+  }
+  .pill.open{ background:var(--pine-soft); color:var(--pine); }
+  .pill.gone{ background:#EDE9DC; color:var(--text-dim); }
+  .wf-btn{
+    border:2px solid var(--pine); background:var(--pine-soft); color:var(--pine);
+    border-radius:9px; padding:7px 13px; font-family:'Barlow Condensed';
+    font-weight:700; font-size:0.9rem; cursor:pointer; white-space:nowrap;
+  }
+  .wf-btn:disabled{ border-color:var(--hairline); background:#EDE9DC; color:var(--text-dim); cursor:default; }
+
+  .banner{
+    background:#FDF2CC; border:1px solid #E8CE73; color:#6B5200;
+    border-radius:12px; padding:13px 15px; margin-bottom:16px; font-size:0.85rem;
+  }
+  .banner strong{ display:block; font-family:'Barlow Condensed'; font-size:1.05rem; margin-bottom:3px; }
+  .steps{ margin:0; padding-left:19px; font-size:0.85rem; color:var(--text-dim); }
+  .steps li{ margin-bottom:6px; }
+  footer{
+    background:var(--asphalt); color:#B9B4A4; padding:22px 16px 30px;
+    font-size:0.78rem; border-top:5px solid var(--line-yellow);
+  }
+  footer a{ color:var(--line-yellow); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="kicker">Minnesota State Fair</div>
+    <h1>Asbury St Parking</h1>
+    <div class="sub">
+      Two private yards on Asbury Street, a short walk from the fairgrounds.
+      Reserve ahead and your spot is held for you.
+    </div>
+    <div class="sub" id="fairDates" style="margin-top:6px;"></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div id="banner"></div>
+
+  <h2>Pick your day</h2>
+  <div class="card" style="padding:13px;">
+    <div class="day-row" id="dayRow"></div>
+    <div class="note" id="daySub">Choose a day of the fair.</div>
+  </div>
+
+  <h2>Choose a spot</h2>
+  <div id="tiers"></div>
+
+  <h2 id="wfTitle">The whole fair, one spot</h2>
+  <div class="card" id="wholeFair"></div>
+
+  <h2>How it works</h2>
+  <div class="card">
+    <ol class="steps">
+      <li>Pick a day and an option, then pay by card. You'll get a receipt by email.</li>
+      <li>Drive to the address on your receipt and give your name at the gate.</li>
+      <li>We'll walk you to your spot. Your space is held for the window you booked.</li>
+    </ol>
+    <div class="note" style="margin-top:10px;">
+      Both yards are on Asbury Street. Exact addresses and arrival notes are on your
+      receipt. Spots are assigned when you arrive so we can put larger vehicles where
+      they fit best.
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div><strong style="color:var(--chalk);">Asbury St Parking</strong></div>
+    <div style="margin-top:6px;">
+      A family operation running two yards during the Great Minnesota Get-Together.
+      Questions about a booking? Reply to your receipt email and we'll get back to you.
+    </div>
+    <div style="margin-top:10px;" id="footNote"></div>
+  </div>
+</footer>
+
+<script>
+/* =========================================================================
+   PUBLIC RESERVATION PAGE
+
+   This page is deliberately powerless. It holds no secret of any kind and it
+   cannot write to the database. It only:
+     - reads a small, public, read-only corner of the database for prices,
+       remaining availability and whether booking is open;
+     - sends a booking request to CHECKOUT_ENDPOINT, which is server-side code
+       that talks to Square and is the only thing allowed to record a booking.
+
+   Anything sensitive - the Square token, the database write - lives in that
+   endpoint, never here. Viewing this page's source reveals nothing useful.
+
+   The public data it expects, all under /public:
+     public/config/{ open: bool, year: "2027", contact: "..." }
+     public/availability/{YYYY-MM-DD}/{standard|late|allday}/{ cap, sold }
+     public/wholefair/{YYYY}/{backtruck|backgarden|backdavid}: "open" | "sold"
+   ========================================================================= */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC_UCV6K487dkB6PRt-3IQxFRNNVnSEcF0",
+  authDomain: "bsmith-family-parking.firebaseapp.com",
+  databaseURL: "https://bsmith-family-parking-default-rtdb.firebaseio.com",
+  projectId: "bsmith-family-parking"
+};
+
+/* Set this once the booking function is deployed. While it is empty the page
+   shows its prices but does not pretend it can take money. */
+const CHECKOUT_ENDPOINT = "";
+
+const PRICES = {
+  standard: 40,
+  late: 30,
+  alldayQuiet: 100,     // fair days 5-8, the quiet stretch
+  alldayBusy: 120,      // every other day
+  wholeFair: 1000
+};
+const QUIET_DAYS = [5, 6, 7, 8];
+
+/* Only these three spots are offered for the whole fair. */
+const WHOLE_FAIR_SPOTS = [
+  { id: 'backtruck',  label: 'Back Truck',  sub: '1372 Asbury \u00b7 between the back garden and the house' },
+  { id: 'backgarden', label: 'Back Garden', sub: '1372 Asbury \u00b7 just below the garage' },
+  { id: 'backdavid',  label: 'Back David',  sub: '1372 Asbury \u00b7 back right corner of the house' }
+];
+
+/* The fair is always the twelve days ending on Labor Day, the first Monday in
+   September, so the dates work themselves out for any year. */
+function laborDay(year){
+  const sept1 = new Date(year, 8, 1);
+  return new Date(year, 8, 1 + ((8 - sept1.getDay()) % 7));
+}
+function fairDays(year){
+  const end = laborDay(year);
+  const out = [];
+  for(let i = 11; i >= 0; i--){
+    out.push(new Date(end.getFullYear(), end.getMonth(), end.getDate() - i));
+  }
+  return out;
+}
+function dateKey(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') +
+         '-' + String(d.getDate()).padStart(2,'0');
+}
+function money(n){ return '$' + Number(n).toLocaleString(); }
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c=>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+let db = null, dbError = null;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+}catch(e){ dbError = e; }
+
+let config = null;          // null until read, or if the read is refused
+let availability = {};
+let wholeFair = {};
+let year = new Date().getFullYear();
+let days = [];
+let selectedDay = null;
+let selectedShift = 'morning';
+
+/* Nothing is bookable unless the owner has explicitly opened it AND the
+   booking function exists. Failing closed is the right default here. */
+function bookingOpen(){
+  return !!(config && config.open === true && CHECKOUT_ENDPOINT);
+}
+
+function remaining(dateK, tier){
+  const a = (availability[dateK] || {})[tier];
+  if(!a) return null;                       // unknown - treat as not for sale
+  const cap = Number(a.cap) || 0;
+  const sold = Number(a.sold) || 0;
+  return Math.max(0, cap - sold);
+}
+
+function alldayPrice(fairDayNo){
+  return QUIET_DAYS.indexOf(fairDayNo) >= 0 ? PRICES.alldayQuiet : PRICES.alldayBusy;
+}
+
+function renderBanner(){
+  const el = document.getElementById('banner');
+  const foot = document.getElementById('footNote');
+  if(bookingOpen()){ el.innerHTML = ''; foot.textContent = ''; return; }
+  const contact = (config && config.contact) ? esc(config.contact) : '';
+  el.innerHTML = `
+    <div class="banner">
+      <strong>Reservations aren't open yet</strong>
+      The prices below are what we'll be charging. Online booking opens before the
+      ${year} fair.${contact ? ' In the meantime you can reach us at ' + contact + '.' : ''}
+      Spots are always available first-come on the day.
+    </div>`;
+  foot.textContent = 'Online booking is not open yet. Prices shown are planned rates.';
+}
+
+function renderDays(){
+  const row = document.getElementById('dayRow');
+  row.innerHTML = days.map((d, i)=>{
+    const k = dateKey(d);
+    const sel = k === selectedDay ? ' selected' : '';
+    const dow = d.toLocaleDateString('en-US', { weekday:'short' });
+    const md = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    return `<button class="day-btn${sel}" data-key="${k}" data-fd="${i+1}">
+      ${md}<span class="dow">${dow}</span></button>`;
+  }).join('');
+  row.querySelectorAll('.day-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{ selectedDay = b.dataset.key; renderAll(); });
+  });
+}
+
+function renderTiers(){
+  const host = document.getElementById('tiers');
+  if(!selectedDay){ host.innerHTML = '<div class="card note">Pick a day above.</div>'; return; }
+  const idx = days.findIndex(d => dateKey(d) === selectedDay);
+  const fd = idx + 1;
+  const open = bookingOpen();
+
+  const leftText = (tier)=>{
+    if(!open) return '<div class="tier-left none">Booking opens before the fair</div>';
+    const r = remaining(selectedDay, tier);
+    if(r === null) return '<div class="tier-left none">Not offered on this day</div>';
+    if(r <= 0) return '<div class="tier-left none">Sold out for this day</div>';
+    return `<div class="tier-left">${r} left for this day</div>`;
+  };
+  const canBook = (tier)=> open && (remaining(selectedDay, tier) || 0) > 0;
+
+  host.innerHTML = `
+    <div class="tier">
+      <div class="tier-head">
+        <div>
+          <div class="tier-name">Standard</div>
+          <div class="tier-rule">One half of the day. Morning arrivals leave by 2pm;
+            afternoon arrivals come any time from 2pm and can stay until the fair closes.</div>
+        </div>
+        <div class="tier-price">${money(PRICES.standard)}</div>
+      </div>
+      <div class="shift-row">
+        <button class="shift-btn${selectedShift==='morning'?' selected':''}" data-shift="morning">
+          Morning<span class="when">6:30am \u2013 2pm</span></button>
+        <button class="shift-btn${selectedShift==='afternoon'?' selected':''}" data-shift="afternoon">
+          Afternoon<span class="when">2pm \u2013 close</span></button>
+      </div>
+      ${leftText('standard')}
+      <button class="book-btn" data-tier="standard"${canBook('standard')?'':' disabled'}>
+        ${open ? 'Reserve for ' + money(PRICES.standard) : 'Not yet available'}</button>
+    </div>
+
+    <div class="tier">
+      <div class="tier-head">
+        <div>
+          <div class="tier-name">Late Night</div>
+          <div class="tier-rule">Arrive any time after 6pm and stay until the fair closes.
+            The cheapest way in for an evening at the grandstand.</div>
+        </div>
+        <div class="tier-price">${money(PRICES.late)}</div>
+      </div>
+      ${leftText('late')}
+      <button class="book-btn" data-tier="late"${canBook('late')?'':' disabled'}>
+        ${open ? 'Reserve for ' + money(PRICES.late) : 'Not yet available'}</button>
+    </div>
+
+    <div class="tier">
+      <div class="tier-head">
+        <div>
+          <div class="tier-name">All Day</div>
+          <div class="tier-rule">Yours from open to close with unlimited in and out.
+            Leave your cooler in the car and come back for it.</div>
+        </div>
+        <div class="tier-price">${money(alldayPrice(fd))}</div>
+      </div>
+      ${leftText('allday')}
+      <button class="book-btn" data-tier="allday"${canBook('allday')?'':' disabled'}>
+        ${open ? 'Reserve for ' + money(alldayPrice(fd)) : 'Not yet available'}</button>
+    </div>
+
+    <div class="note" style="margin:2px 2px 0;">
+      All Day is ${money(PRICES.alldayQuiet)} on the four quieter mid-fair days and
+      ${money(PRICES.alldayBusy)} on the rest.
+    </div>
+  `;
+
+  host.querySelectorAll('.shift-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{ selectedShift = b.dataset.shift; renderTiers(); });
+  });
+  host.querySelectorAll('.book-btn').forEach(b=>{
+    b.addEventListener('click', ()=> startCheckout({
+      kind: 'day',
+      tier: b.dataset.tier,
+      date: selectedDay,
+      shift: b.dataset.tier === 'standard' ? selectedShift : null
+    }));
+  });
+}
+
+function renderWholeFair(){
+  const host = document.getElementById('wholeFair');
+  const open = bookingOpen();
+  const wf = wholeFair[String(year)] || {};
+  document.getElementById('wfTitle').textContent =
+    'The whole fair, one spot \u2014 ' + money(PRICES.wholeFair);
+  host.innerHTML = `
+    <div class="note" style="margin-bottom:12px;">
+      Three spots at 1372 Asbury are offered for all twelve days. Same space every
+      day, unlimited in and out, nobody else parks in it. Only these three.
+    </div>
+    ${WHOLE_FAIR_SPOTS.map(s=>{
+      const state = wf[s.id];
+      const sold = state === 'sold';
+      const known = state === 'open' || state === 'sold';
+      return `
+      <div class="wf-spot">
+        <div>
+          <div class="wf-name">${esc(s.label)}</div>
+          <div class="wf-sub">${esc(s.sub)}</div>
+        </div>
+        ${!open
+          ? '<span class="pill gone">Opens soon</span>'
+          : (!known
+              ? '<span class="pill gone">Unavailable</span>'
+              : (sold
+                  ? '<span class="pill gone">Taken</span>'
+                  : `<button class="wf-btn" data-spot="${s.id}">Reserve</button>`))}
+      </div>`;
+    }).join('')}
+  `;
+  host.querySelectorAll('.wf-btn').forEach(b=>{
+    b.addEventListener('click', ()=> startCheckout({
+      kind: 'wholefair', spot: b.dataset.spot, year: String(year)
+    }));
+  });
+}
+
+function renderAll(){
+  document.getElementById('fairDates').textContent = days.length
+    ? days[0].toLocaleDateString('en-US',{ month:'long', day:'numeric' }) + ' \u2013 ' +
+      days[11].toLocaleDateString('en-US',{ month:'long', day:'numeric', year:'numeric' }) +
+      ' \u00b7 twelve days ending Labor Day'
+    : '';
+  document.getElementById('daySub').textContent = selectedDay
+    ? 'Day ' + (days.findIndex(d=> dateKey(d) === selectedDay) + 1) + ' of the fair'
+    : 'Choose a day of the fair.';
+  renderBanner();
+  renderDays();
+  renderTiers();
+  renderWholeFair();
+}
+
+/* Hands the request to the server-side function, which creates the Square
+   checkout. This page never sees a card number and never records a booking. */
+async function startCheckout(request){
+  if(!bookingOpen()) return;
+  const btns = document.querySelectorAll('.book-btn, .wf-btn');
+  btns.forEach(b=> b.disabled = true);
+  try{
+    const res = await fetch(CHECKOUT_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    });
+    if(!res.ok) throw new Error('Checkout unavailable (' + res.status + ')');
+    const data = await res.json();
+    if(!data || !data.url) throw new Error('No checkout link came back');
+    window.location.href = data.url;      // Square's hosted payment page
+  }catch(e){
+    alert("Sorry, we couldn't start the checkout just now. Please try again in a "
+         + "moment, or park with us on the day - we always keep spots open.");
+    btns.forEach(b=> b.disabled = false);
+  }
+}
+
+/* ---- start up ---- */
+days = fairDays(year);
+selectedDay = dateKey(days[0]);
+renderAll();
+
+if(db){
+  /* Read-only. If the rules do not allow this, the page simply stays in its
+     "not open yet" state rather than breaking. */
+  db.ref('public/config').on('value', (snap)=>{
+    config = (snap.exists() && snap.val()) ? snap.val() : null;
+    if(config && config.year && Number(config.year) !== year){
+      year = Number(config.year);
+      days = fairDays(year);
+      selectedDay = dateKey(days[0]);
+    }
+    renderAll();
+  }, ()=>{ config = null; renderAll(); });
+
+  db.ref('public/availability').on('value', (snap)=>{
+    availability = (snap.exists() && snap.val()) ? snap.val() : {};
+    renderAll();
+  }, ()=>{ availability = {}; renderAll(); });
+
+  db.ref('public/wholefair').on('value', (snap)=>{
+    wholeFair = (snap.exists() && snap.val()) ? snap.val() : {};
+    renderAll();
+  }, ()=>{ wholeFair = {}; renderAll(); });
+}
+</script>
+</body>
+</html>
