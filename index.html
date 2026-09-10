@@ -1618,6 +1618,10 @@ let goalAmounts = {};   // year -> whole-fair goal
 let goalsRef = null;
 let headGoal = null;    // { dayGoal, cumGoal, priorActual } for the day on screen
 
+/* Comps can be left out of every figure on the Grand Total page. Also a
+   per-device preference, and on by default. */
+let includeComps = localStorage.getItem('includeComps') !== '0';
+
 async function loadGoals(){
   try{
     const snap = await db.ref('goals').get();
@@ -1694,7 +1698,17 @@ async function saveGoal(year, amount){
 function yearOf(dateStr){ return String(dateStr || '').slice(0,4); }
 
 async function renderTotalsPage(){
-  const allDaysRaw = await fetchAllDays();
+  const allDaysAll = await fetchAllDays();
+  /* With comps switched off, every figure and chart on this page is worked out
+     without them. Days are kept even when nothing is left, so a day the yards
+     ran still counts towards the per-day averages. */
+  let allDaysRaw = allDaysAll;
+  if(!includeComps){
+    allDaysRaw = {};
+    Object.keys(allDaysAll).forEach(k=>{
+      allDaysRaw[k] = (allDaysAll[k] || []).filter(tx => !tx.comp);
+    });
+  }
   const allAdjustments = await loadAdjustments();
   await loadGoals();
 
@@ -1834,6 +1848,7 @@ async function renderTotalsPage(){
   const main = document.getElementById('totalsMain');
   main.innerHTML = `
     ${yearTabs}
+    <button class="goal-toggle${includeComps ? ' on' : ''}" id="compToggle">${includeComps ? 'Comps included' : 'Comps excluded'}</button>
     <div class="section-title" style="margin-top:0;">${scopeLabel} Totals</div>
     <div class="summary-card">
       <div class="summary-row"><span>Gross Revenue (${carCount} car${carCount===1?'':'s'})</span><span class="v">${money(grossTotal)}</span></div>
@@ -1915,6 +1930,13 @@ async function renderTotalsPage(){
         });
       });
     });
+  });
+
+  const compToggleBtn = document.getElementById('compToggle');
+  if(compToggleBtn) compToggleBtn.addEventListener('click', async ()=>{
+    includeComps = !includeComps;
+    try{ localStorage.setItem('includeComps', includeComps ? '1' : '0'); }catch(e){}
+    await renderTotalsPage();
   });
 
   const goalToggleBtn = document.getElementById('goalToggle');
