@@ -168,6 +168,7 @@
       Reserve ahead and your spot is held for you.
     </div>
     <div class="sub" id="fairDates" style="margin-top:6px;"></div>
+    <div class="sub" id="openPolicy" style="margin-top:4px;"></div>
   </div>
 </header>
 
@@ -342,6 +343,19 @@ function fairDays(year){
   }
   return out;
 }
+/* The day booking opens for a given fair: the day after the previous fair
+   ended. For 2027 that is 8 September 2026, the morning after Labor Day. */
+function salesOpenDate(forYear){
+  const prevEnd = laborDay(forYear - 1);
+  return new Date(prevEnd.getFullYear(), prevEnd.getMonth(), prevEnd.getDate() + 1);
+}
+function bookableYear(today){
+  const y = today.getFullYear();
+  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  // once this year's fair has finished, we are selling next year's
+  return midnight >= salesOpenDate(y + 1) ? y + 1 : y;
+}
+
 function dateKey(d){
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') +
          '-' + String(d.getDate()).padStart(2,'0');
@@ -361,7 +375,9 @@ try{
 let config = null;          // null until read, or if the read is refused
 let availability = {};
 let wholeFair = {};
-let year = new Date().getFullYear();
+/* Which fair is on sale. Booking for a fair opens the day after the previous
+   one ends, so the site rolls over to next year by itself on that morning. */
+let year = bookableYear(new Date());
 let days = [];
 let selectedDay = null;
 let selectedShift = 'morning';
@@ -387,16 +403,27 @@ function alldayPrice(fairDayNo){
 function renderBanner(){
   const el = document.getElementById('banner');
   const foot = document.getElementById('footNote');
+  const opened = salesOpenDate(year);
+  const openedNice = opened.toLocaleDateString('en-US',
+    { month:'long', day:'numeric', year:'numeric' });
+  const alreadyOpen = new Date() >= opened;
+
+  document.getElementById('openPolicy').textContent = alreadyOpen
+    ? 'Booking for ' + year + ' opened ' + openedNice + ' \u2014 the day after the '
+      + (year - 1) + ' fair ended.'
+    : 'Booking for ' + year + ' opens ' + openedNice + '.';
+
   if(bookingOpen()){ el.innerHTML = ''; foot.textContent = ''; return; }
   const contact = (config && config.contact) ? esc(config.contact) : '';
   el.innerHTML = `
     <div class="banner">
-      <strong>Reservations aren't open yet</strong>
-      The prices below are what we'll be charging. Online booking opens before the
-      ${year} fair.${contact ? ' In the meantime you can reach us at ' + contact + '.' : ''}
+      <strong>Card payment isn't switched on yet</strong>
+      Reservations for the ${year} fair are open as of ${openedNice}, but online
+      card payment is still being set up. The prices below are what we'll be
+      charging.${contact ? ' To book now, reach us at ' + contact + '.' : ''}
       Spots are always available first-come on the day.
     </div>`;
-  foot.textContent = 'Online booking is not open yet. Prices shown are planned rates.';
+  foot.textContent = 'Online card payment is not switched on yet. Prices shown are our ' + year + ' rates.';
 }
 
 function renderDays(){
