@@ -19,51 +19,86 @@ step only you can do — I have no access to your Square or Firebase accounts.
 | Square webhook signature key | Square Developer dashboard → Webhooks → your subscription | **yes** |
 | Firebase service account JSON | Firebase Console → Project Settings → Service accounts → Generate new private key | **yes** |
 
-The three secrets never go in a file. They are set with `wrangler secret put`
-and stored encrypted by Cloudflare.
+The three secrets never go in a file. They are entered directly into
+Cloudflare, which stores them encrypted.
 
 ---
 
-## Steps
+## Steps — browser only (recommended)
 
-### 1. Install and log in
+This needs no software installed and no administrator rights. It also keeps
+the credentials off your computer entirely: they go from the browser straight
+into Cloudflare's encrypted storage.
+
+### 1. Create a Cloudflare account
+[dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up) — free, no
+card required.
+
+### 2. Create the worker
+Sidebar → **Compute (Workers)** → **Create** → **Start with Hello World** →
+name it `asbury-parking` → **Deploy**.
+
+### 3. Paste in the code
+**Edit code**, delete the sample, and paste the whole of `index.html`'s
+neighbour `worker/index.js` from this repo — use GitHub's **Raw** view, select
+all, copy. Then **Deploy**.
+
+### 4. Note your worker URL
+Something like `https://asbury-parking.yourname.workers.dev`.
+
+### 5. Add the settings
+**Settings → Variables and Secrets.** As **plaintext**:
+
+| Name | Value |
+|---|---|
+| `SQUARE_ENV` | `sandbox` (change to `production` when live) |
+| `SQUARE_LOCATION_ID` | from Square |
+| `FIREBASE_DB_URL` | `https://bsmith-family-parking-default-rtdb.firebaseio.com` |
+| `ALLOWED_ORIGINS` | `https://smithers45.github.io` |
+| `SUCCESS_URL` | `https://smithers45.github.io/Bsmith-family-parking/reserve/` |
+| `TEXT_NUMBER` | `651-329-0846` |
+| `SQUARE_WEBHOOK_URL` | your worker URL + `/square-webhook` |
+
+As **Secret** (encrypted — pick the right type in the dropdown):
+`SQUARE_ACCESS_TOKEN`, `SQUARE_WEBHOOK_SIGNATURE_KEY`,
+`FIREBASE_SERVICE_ACCOUNT` (paste the whole JSON file as one blob).
+
+**`SQUARE_WEBHOOK_URL` has to match what you register in Square exactly.**
+Square computes the signature over the notification URL plus the request body,
+so a trailing slash or `http` instead of `https` makes every webhook fail
+verification — silently.
+
+### 6. Add the cron sweep
+**Settings → Trigger Events → Cron Triggers → Add**, expression
+`*/10 * * * *`. This expires abandoned checkout holds so spaces free up.
+
+### 7. Deploy again
+
+On this path `wrangler.toml` is not used at all — the dashboard variables
+replace it. It is kept in the repo for anyone who prefers the command line.
+
+<details>
+<summary>Command-line alternative (needs Node.js and admin rights)</summary>
+
 ```
 npm install -g wrangler
 wrangler login
-```
-
-### 2. Fill in `wrangler.toml`
-Set `SQUARE_LOCATION_ID`. Leave `SQUARE_ENV = "sandbox"` for now — you want to
-test with fake cards before real ones.
-
-### 3. Deploy once to get your URL
-```
 wrangler deploy
-```
-Wrangler prints something like
-`https://asbury-parking.yourname.workers.dev`. Put that into
-`SQUARE_WEBHOOK_URL` in `wrangler.toml`, with `/square-webhook` on the end.
-
-**This has to match exactly.** Square computes the signature over the
-notification URL plus the request body, so a trailing slash or an `http` vs
-`https` mismatch will make every webhook fail verification.
-
-### 4. Set the secrets
-```
 wrangler secret put SQUARE_ACCESS_TOKEN
 wrangler secret put SQUARE_WEBHOOK_SIGNATURE_KEY
 wrangler secret put FIREBASE_SERVICE_ACCOUNT
 ```
-For the last one, paste the entire contents of the service account JSON file
-as a single line when prompted.
+Set the non-secret values in `wrangler.toml` first. This route requires
+installing Node.js, which a managed work machine will usually refuse.
+</details>
 
-### 5. Register the webhook in Square
+### 8. Register the webhook in Square
 Square Developer dashboard → Webhooks → Add subscription.
 - URL: your `/square-webhook` address
 - API version: 2026-05-20
 - Event: **`payment.updated`** (that is the only one this worker uses)
 
-### 6. Tighten the database rules
+### 9. Tighten the database rules
 Firebase Console → Realtime Database → Rules. Paste the contents of
 `firebase-rules.json` and publish.
 
@@ -76,6 +111,7 @@ signed-in user can read and write the whole database. After this change:
 
 The worker uses a service account, which bypasses rules entirely. That is why
 it can still write.
+
 
 ### 7. Deploy again
 ```
