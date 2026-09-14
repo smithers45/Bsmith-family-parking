@@ -405,6 +405,24 @@ async function wholeFairTakenByOther(env, year, spot, ref){
   });
 }
 
+/* Is the season open to buyers?
+
+   public/config/open is the owner's kill switch - it can be flipped from a
+   phone without a deploy. While it is off, the only way through is a preview
+   token matching the PREVIEW_TOKEN secret, which lives in Cloudflare and is
+   never committed anywhere.
+
+   This check belongs here rather than in the page. The page can only hide
+   buttons; anyone can POST to /checkout directly. Without this, a closed
+   season was closed by appearance only. */
+async function bookingIsOpen(env, raw){
+  const cfg = await dbGet(env, 'public/config');
+  if(cfg && cfg.open === true) return true;
+  const supplied = clean(raw && raw.preview, 128);
+  return !!(env.PREVIEW_TOKEN && supplied
+            && timingSafeEqual(supplied, env.PREVIEW_TOKEN));
+}
+
 async function checkAvailable(env, req, now){
   if(req.kind === 'wholefair'){
     /* Cheap early rejection only, so an obviously gone spot does not leave a
@@ -526,6 +544,13 @@ async function handleCheckout(env, request){
   let raw;
   try{ raw = await request.json(); }
   catch(e){ return json({ error:'malformed request' }, 400, cors); }
+
+  /* Refuse everything until the season is open, or the caller holds the
+     preview token. Checked before anything is validated, priced, held or
+     sent to Square. */
+  if(!(await bookingIsOpen(env, raw))){
+    return json({ error:'booking is not open yet' }, 403, cors);
+  }
 
   const now = new Date();
   const v = validate(raw, now);

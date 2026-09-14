@@ -291,6 +291,9 @@
        shift:'morning'|'afternoon'|null, guest:{...} }
      { kind:'wholefair', spot:'backtruck'|'backgarden'|'backdavid', year:'YYYY',
        guest:{...} }
+   Plus preview:'<token>' when the page was opened with ?preview=, which the
+   worker checks against its own secret before allowing a sale while the
+   season is still closed.
    where guest is { name, phone, arrive, car, colour }. The endpoint must treat
    all of it as untrusted and re-check the price and availability itself.
    ========================================================================= */
@@ -304,7 +307,14 @@ const firebaseConfig = {
 
 /* Set this once the booking function is deployed. While it is empty the page
    shows its prices but does not pretend it can take money. */
-const CHECKOUT_ENDPOINT = "";
+const CHECKOUT_ENDPOINT = "https://asbury-parking.brian-smith-debate.workers.dev/checkout";
+
+/* Owner preview. Opening /reserve/?preview=<token> turns booking on for this
+   visit alone, so the whole flow can be walked through before the season is
+   opened to the public. This is presentation only - the token is verified by
+   the worker against a secret held in Cloudflare, so a visitor who guesses
+   the page behaviour still cannot buy anything. */
+const PREVIEW_TOKEN = new URLSearchParams(location.search).get('preview') || '';
 
 /* The number guests text when they're close. Can also be set in
    public/config/textNumber so it changes without touching this file. */
@@ -403,7 +413,9 @@ let selectedShift = 'morning';
 /* Nothing is bookable unless the owner has explicitly opened it AND the
    booking function exists. Failing closed is the right default here. */
 function bookingOpen(){
-  return !!(config && config.open === true && CHECKOUT_ENDPOINT);
+  if(!CHECKOUT_ENDPOINT) return false;
+  if(PREVIEW_TOKEN) return true;
+  return !!(config && config.open === true);
 }
 
 function remaining(dateK, tier){
@@ -431,6 +443,18 @@ function renderBanner(){
       + (year - 1) + ' fair ended.'
     : 'Booking for ' + year + ' opens ' + openedNice + '.';
 
+  if(PREVIEW_TOKEN){
+    el.innerHTML = `
+      <div class="banner">
+        <strong>Preview \u2014 the public cannot see this</strong>
+        Booking is switched on for you because of the preview link, so the whole
+        flow can be tested end to end. Everyone else gets refused by the server
+        until <code>public/config/open</code> is set to true. Drop the
+        <code>?preview=</code> from the address to see exactly what a visitor sees.
+      </div>`;
+    foot.textContent = 'Preview mode \u2014 not open to the public.';
+    return;
+  }
   if(bookingOpen()){ el.innerHTML = ''; foot.textContent = ''; return; }
   const contact = (config && config.contact) ? esc(config.contact) : '';
   el.innerHTML = `
@@ -759,7 +783,9 @@ async function startCheckout(request){
     const res = await fetch(CHECKOUT_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request)
+      body: JSON.stringify(PREVIEW_TOKEN
+        ? Object.assign({}, request, { preview: PREVIEW_TOKEN })
+        : request)
     });
     if(!res.ok) throw new Error('Checkout unavailable (' + res.status + ')');
     const data = await res.json();
