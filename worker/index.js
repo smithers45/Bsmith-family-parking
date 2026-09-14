@@ -828,6 +828,61 @@ async function handleHealth(env, url){
     checks.squareAuth = 'FAILED: ' + String((e && e.message) || e).slice(0, 200);
   }
 
+  /* Read the webhook subscriptions Square actually holds for this
+     environment. Nothing else can answer this: a signature key being set
+     proves only that something was pasted, not that a subscription exists,
+     not that it is in this environment, not that it points at this worker,
+     and not that it listens for the one event this worker acts on.
+
+     Sandbox and production subscriptions are separate, each with its own
+     signature key, so the production key sitting in a sandbox worker fails
+     every webhook signature check while looking perfectly configured.
+     signatureKeyMatchesConfigured is the check that catches it.
+
+     The signature key itself is never included in the output - only whether
+     it equals the one configured. */
+  try{
+    const res = await fetch(squareBase(env) + '/v2/webhooks/subscriptions', {
+      headers: {
+        'Authorization': 'Bearer ' + env.SQUARE_ACCESS_TOKEN,
+        'Square-Version': '2026-05-20'
+      }
+    });
+    const data = await res.json();
+    if(!res.ok){
+      checks.webhookSubscriptions = 'FAILED: HTTP ' + res.status + ' '
+        + JSON.stringify(data.errors || data).slice(0, 250);
+    }else{
+      const subs = data.subscriptions || [];
+      checks.webhookSubscriptionCount = subs.length;
+      checks.webhookSubscriptions = subs.map(s=> ({
+        name: s.name || null,
+        enabled: s.enabled !== false,
+        notificationUrl: s.notification_url || null,
+        apiVersion: s.api_version || null,
+        eventTypes: s.event_types || [],
+        urlMatchesThisWorker: s.notification_url === url.origin + '/square-webhook',
+        listensForPaymentUpdated: (s.event_types || []).indexOf('payment.updated') >= 0,
+        signatureKeyMatchesConfigured: !!(s.signature_key
+          && env.SQUARE_WEBHOOK_SIGNATURE_KEY
+          && s.signature_key === env.SQUARE_WEBHOOK_SIGNATURE_KEY)
+      }));
+      if(!subs.length){
+        checks.webhookVerdict = 'NO SUBSCRIPTION IN THIS ENVIRONMENT - Square will never '
+          + 'call this worker, so a payment can succeed and no reservation will be created';
+      }else{
+        const good = checks.webhookSubscriptions.filter(s=>
+          s.enabled && s.urlMatchesThisWorker && s.listensForPaymentUpdated
+          && s.signatureKeyMatchesConfigured);
+        checks.webhookVerdict = good.length
+          ? 'ok - ' + good.length + ' usable subscription'
+          : 'SUBSCRIPTION EXISTS BUT IS NOT USABLE - compare the fields above';
+      }
+    }
+  }catch(e){
+    checks.webhookSubscriptions = 'FAILED: ' + String((e && e.message) || e).slice(0, 200);
+  }
+
   return json({ missing, present, checks }, 200);
 }
 
