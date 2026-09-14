@@ -710,21 +710,98 @@ async function expireHolds(env){
   return Object.keys(updates).length;
 }
 
+/* ---------- setup diagnostics ----------
+   GET /health?preview=<token> reports which settings are present - never
+   their values - and whether Firebase and Square can actually be reached.
+   It requires the preview token, so it tells a passer-by nothing, and it
+   checks the token against the secret directly rather than through the
+   database, so it still answers when the database is the broken thing. */
+
+const SETTINGS = [
+  'SQUARE_ENV', 'SQUARE_LOCATION_ID', 'SQUARE_ACCESS_TOKEN',
+  'SQUARE_WEBHOOK_SIGNATURE_KEY', 'SQUARE_WEBHOOK_URL',
+  'FIREBASE_DB_URL', 'FIREBASE_SERVICE_ACCOUNT',
+  'ALLOWED_ORIGINS', 'SUCCESS_URL', 'TEXT_NUMBER', 'PREVIEW_TOKEN'
+];
+
+async function handleHealth(env, url){
+  const supplied = clean(url.searchParams.get('preview'), 128);
+  if(!(env.PREVIEW_TOKEN && supplied
+       && timingSafeEqual(supplied, env.PREVIEW_TOKEN))){
+    return new Response('not found', { status: 404 });
+  }
+
+  const missing = [];
+  const present = [];
+  SETTINGS.forEach(k=>{
+    if(env[k] && String(env[k]).length) present.push(k); else missing.push(k);
+  });
+
+  const checks = {
+    squareEnv: env.SQUARE_ENV === 'production' ? 'PRODUCTION - real cards' : 'sandbox - test cards only',
+    webhookUrlMatchesThisWorker: env.SQUARE_WEBHOOK_URL === url.origin + '/square-webhook',
+    expectedWebhookUrl: url.origin + '/square-webhook',
+    configuredWebhookUrl: env.SQUARE_WEBHOOK_URL || null
+  };
+
+  try{
+    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    checks.serviceAccountParses = true;
+    checks.serviceAccountProject = sa.project_id || null;
+    checks.serviceAccountHasPrivateKey =
+      !!(sa.private_key && sa.private_key.indexOf('BEGIN PRIVATE KEY') >= 0);
+    checks.serviceAccountEmail = sa.client_email || null;
+  }catch(e){
+    checks.serviceAccountParses = false;
+    checks.serviceAccountError = String((e && e.message) || e).slice(0, 200);
+  }
+
+  try{
+    await firebaseToken(env);
+    checks.firebaseAuth = 'ok';
+  }catch(e){
+    checks.firebaseAuth = 'FAILED: ' + String((e && e.message) || e).slice(0, 200);
+  }
+
+  try{
+    const cfg = await dbGet(env, 'public/config');
+    checks.databaseRead = 'ok';
+    checks.seasonOpenToPublic = !!(cfg && cfg.open === true);
+    checks.configNodeExists = !!cfg;
+  }catch(e){
+    checks.databaseRead = 'FAILED: ' + String((e && e.message) || e).slice(0, 200);
+  }
+
+  return json({ missing, present, checks }, 200);
+}
+
 export default {
   async fetch(request, env){
     const url = new URL(request.url);
     if(request.method === 'OPTIONS'){
       return new Response(null, { status: 204, headers: corsHeaders(env, request) });
     }
+    if(request.method === 'GET' && url.pathname === '/health'){
+      try{ return await handleHealth(env, url); }
+      catch(e){
+        console.error('health failed:', (e && e.stack) || String(e));
+        return json({ error:'health check itself failed', detail: String((e && e.message) || e).slice(0, 200) }, 500);
+      }
+    }
     if(request.method === 'POST' && url.pathname === '/checkout'){
       try{ return await handleCheckout(env, request); }
       catch(e){
+        /* Log it. Swallowing this silently meant a misconfigured setting
+           surfaced to the customer as "try again in a moment" and left no
+           trace anywhere, which is not a thing anyone can debug. */
+        console.error('checkout failed:', (e && e.stack) || String(e));
         return json({ error:'server error' }, 500, corsHeaders(env, request));
       }
     }
     if(request.method === 'POST' && url.pathname === '/square-webhook'){
       try{ return await handleWebhook(env, request); }
       catch(e){
+        console.error('webhook failed:', (e && e.stack) || String(e));
         // 500 makes Square retry, which is what we want on a transient fault.
         return new Response('error', { status: 500 });
       }
@@ -733,6 +810,11 @@ export default {
   },
 
   async scheduled(event, env){
-    await expireHolds(env);
+    try{
+      await expireHolds(env);
+    }catch(e){
+      console.error('hold sweep failed:', (e && e.stack) || String(e));
+      throw e;
+    }
   }
 };
