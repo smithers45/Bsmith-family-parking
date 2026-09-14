@@ -284,7 +284,7 @@
    The public data it expects, all under /public:
      public/config/{ open: bool, year: "2027", contact: "...", textNumber: "..." }
      public/availability/{YYYY-MM-DD}/{standard|late|allday}/{ cap, sold }
-     public/wholefair/{YYYY}/{backtruck|backgarden|backdavid}: "open" | "sold"
+     public/wholefair/{YYYY}/{backtruck|backgarden|backdavid}: "open" | "held" | "sold"
 
    What it sends to CHECKOUT_ENDPOINT:
      { kind:'day', tier:'standard'|'late'|'allday', date:'YYYY-MM-DD',
@@ -570,7 +570,10 @@ function renderWholeFair(){
     ${WHOLE_FAIR_SPOTS.map(s=>{
       const state = wf[s.id];
       const sold = state === 'sold';
-      const known = state === 'open' || state === 'sold';
+      /* 'held' means somebody is part-way through paying for it right now.
+         The spot is locked to them for a few minutes and then comes back. */
+      const held = state === 'held';
+      const known = state === 'open' || state === 'sold' || state === 'held';
       return `
       <div class="wf-spot">
         <div>
@@ -583,7 +586,9 @@ function renderWholeFair(){
               ? '<span class="pill gone">Unavailable</span>'
               : (sold
                   ? '<span class="pill gone">Taken</span>'
-                  : `<button class="wf-btn" data-spot="${s.id}">Reserve</button>`))}
+                  : (held
+                      ? '<span class="pill gone">Being booked</span>'
+                      : `<button class="wf-btn" data-spot="${s.id}">Reserve</button>`)))}
       </div>`;
     }).join('')}
   `;

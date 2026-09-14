@@ -31,7 +31,17 @@ const PRICES = {
 const QUIET_DAYS = [5, 6, 7, 8];
 const BOOKING_FEE = 2;
 const WHOLE_FAIR_SPOTS = ['backtruck', 'backgarden', 'backdavid'];
+
+/* How long a checkout may sit unpaid before the space is released again.
+   Day options are counted against a cap, so several people may hold at once.
+   A whole-fair spot is exclusive - one buyer at a time and nobody else can
+   even begin - so its window is deliberately shorter. */
 const HOLD_MINUTES = 20;
+const WHOLEFAIR_HOLD_MINUTES = 10;
+
+function holdMinutes(kind){
+  return kind === 'wholefair' ? WHOLEFAIR_HOLD_MINUTES : HOLD_MINUTES;
+}
 
 const ARRIVAL_WINDOWS = {
   standard_morning:   ['06:30', '14:00'],
@@ -177,6 +187,45 @@ const dbGet   = (env, p)    => dbFetch(env, p, 'GET');
 const dbPut   = (env, p, v) => dbFetch(env, p, 'PUT', v);
 const dbPatch = (env, p, v) => dbFetch(env, p, 'PATCH', v);
 
+/* ---------- compare-and-set ----------
+   Firebase's REST API hands back an ETag when asked for one, and honours
+   if-match on a write: the write lands only if nothing has changed since
+   that read. That collapses read-then-write into a single atomic step,
+   which is the difference between counting holds and actually locking. */
+
+async function dbGetEtag(env, path){
+  const token = await firebaseToken(env);
+  const url = env.FIREBASE_DB_URL.replace(/\/$/, '') + '/' + path + '.json';
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'X-Firebase-ETag': 'true'
+    }
+  });
+  if(!res.ok) throw new Error('db GET ' + path + ' -> ' + res.status);
+  const text = await res.text();
+  return { value: text ? JSON.parse(text) : null, etag: res.headers.get('ETag') };
+}
+
+/* true  = we won, the value is now ours.
+   false = somebody changed it between our read and our write. */
+async function dbPutIfMatch(env, path, etag, value){
+  const token = await firebaseToken(env);
+  const url = env.FIREBASE_DB_URL.replace(/\/$/, '') + '/' + path + '.json';
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+      'if-match': etag
+    },
+    body: JSON.stringify(value)
+  });
+  if(res.status === 412) return false;
+  if(!res.ok) throw new Error('db CAS ' + path + ' -> ' + res.status);
+  return true;
+}
+
 /* ---------- pricing and validation, server side only ---------- */
 
 function priceFor(req){
@@ -264,20 +313,108 @@ async function usedCount(env, req, now){
     const h = holds[k];
     if(!h || h.status !== 'held') return;
     if((h.createdAt || 0) < cutoff) return;          // expired
-    if(req.kind === 'wholefair'){
-      if(h.kind === 'wholefair' && h.spot === req.spot && h.year === req.year) n++;
-    }else if(h.kind === 'day' && h.date === req.date && h.tier === req.tier){
-      n++;
-    }
+    if(h.kind === 'day' && h.date === req.date && h.tier === req.tier) n++;
   });
   return n;
 }
 
+/* ---------- whole-fair spots: a real lock, not a count ----------
+
+   The lock lives in its own private node and carries both the owner and the
+   expiry with it:
+
+     locks/wholefair/<year>/<spot> = { token, expiresAt }   (private)
+     public/wholefair/<year>/<spot> = 'open' | 'held' | 'sold'  (what the
+                                      website reads, display only)
+
+   Keeping the expiry inside the lock is the point. An earlier version of this
+   judged staleness by scanning the pending records, which quietly made the
+   lock depend on the order two unrelated writes happened to land in - and
+   under simultaneous clicks that let two people both win. The lock now
+   answers "is this taken" entirely from its own contents, so correctness
+   does not rest on anything outside this one compare-and-set. */
+
+/* Take the spot exclusively. Exactly one caller can win; the winner has
+   WHOLEFAIR_HOLD_MINUTES to pay. An expired lock is simply overwritten, so
+   the window is honoured immediately, without waiting for the cron sweep. */
+async function claimWholeFairSpot(env, year, spot, ownToken, now){
+  const pub  = 'public/wholefair/' + year + '/' + spot;
+  const lock = 'locks/wholefair/' + year + '/' + spot;
+
+  const offered = await dbGet(env, pub);
+  if(offered === null || offered === undefined){
+    return { ok:false, why:'that spot is not offered for the ' + year + ' fair' };
+  }
+  if(offered === 'sold'){
+    return { ok:false, why:'that spot has already been taken for the whole fair' };
+  }
+
+  for(let attempt = 0; attempt < 4; attempt++){
+    const cur = await dbGetEtag(env, lock);
+    const held = cur.value;
+
+    if(held && Number(held.expiresAt) > now.getTime() && held.token !== ownToken){
+      return { ok:false, why:'someone else is paying for that spot right now. '
+        + 'If they do not finish it will free up within '
+        + WHOLEFAIR_HOLD_MINUTES + ' minutes - please try again then' };
+    }
+
+    const mine = {
+      token: ownToken,
+      spot: spot,
+      year: String(year),
+      expiresAt: now.getTime() + WHOLEFAIR_HOLD_MINUTES * 60000
+    };
+    if(await dbPutIfMatch(env, lock, cur.etag, mine)){
+      await dbPut(env, pub, 'held');          // mirror for the website
+      return { ok:true, expiresAt: mine.expiresAt };
+    }
+    // Somebody wrote first. Re-read and reassess.
+  }
+  return { ok:false, why:'that spot is busy right now - please try again in a moment' };
+}
+
+/* Give the spot back. Only ever clears a lock we still own (or an expired
+   one), and only ever moves the public state 'held' -> 'open', so it can
+   never undo a completed sale. */
+async function releaseWholeFairSpot(env, year, spot, ownToken){
+  const pub  = 'public/wholefair/' + year + '/' + spot;
+  const lock = 'locks/wholefair/' + year + '/' + spot;
+  try{
+    const cur = await dbGetEtag(env, lock);
+    if(cur.value && ownToken && cur.value.token !== ownToken
+       && Number(cur.value.expiresAt) > Date.now()){
+      return;                                 // somebody else's live lock
+    }
+    if(!(await dbPutIfMatch(env, lock, cur.etag, null))) return;
+    const state = await dbGetEtag(env, pub);
+    if(state.value === 'held') await dbPutIfMatch(env, pub, state.etag, 'open');
+  }catch(e){
+    // Not fatal: the cron sweep will pick it up.
+  }
+}
+
+/* Has a different confirmed booking already taken this spot? */
+async function wholeFairTakenByOther(env, year, spot, ref){
+  const all = (await dbGet(env, 'reservations')) || {};
+  return Object.keys(all).some(k=>{
+    const r = all[k];
+    return k !== ref && !!r && r.kind === 'wholefair'
+        && String(r.year) === String(year) && r.spot === spot
+        && r.status === 'confirmed';
+  });
+}
+
 async function checkAvailable(env, req, now){
   if(req.kind === 'wholefair'){
+    /* Cheap early rejection only, so an obviously gone spot does not leave a
+       stray hold record behind. The real gate is claimWholeFairSpot, which is
+       atomic - this check is allowed to be racy because nothing depends on it. */
     const state = await dbGet(env, 'public/wholefair/' + req.year + '/' + req.spot);
-    if(state !== 'open') return 'that spot is no longer available';
-    if(await usedCount(env, req, now) > 0) return 'someone is paying for that spot right now';
+    if(state === null || state === undefined){
+      return 'that spot is not offered for the ' + req.year + ' fair';
+    }
+    if(state === 'sold') return 'that spot has already been taken for the whole fair';
     return null;
   }
   const node = await dbGet(env, 'public/availability/' + req.date + '/' + req.tier);
@@ -402,6 +539,7 @@ async function handleCheckout(env, request){
   await dbPut(env, 'pending/' + token, {
     status: 'held',
     createdAt: now.getTime(),
+    expiresAt: now.getTime() + holdMinutes(req.kind) * 60000,
     kind: req.kind,
     tier: req.tier || null,
     date: req.date || null,
@@ -414,11 +552,23 @@ async function handleCheckout(env, request){
     guest: req.guest
   });
 
+  /* Lock the whole-fair spot. The hold record above is written first on
+     purpose: the lock is then always backed by something the sweep can find
+     and expire, even if this request dies here. */
+  if(req.kind === 'wholefair'){
+    const claim = await claimWholeFairSpot(env, req.year, req.spot, token, now);
+    if(!claim.ok){
+      await dbPatch(env, 'pending/' + token, { status:'rejected', reason: claim.why });
+      return json({ error: claim.why }, 409, cors);
+    }
+  }
+
   let link;
   try{
     link = await createPaymentLink(env, req, token);
   }catch(e){
     await dbPatch(env, 'pending/' + token, { status:'failed', error: String(e).slice(0, 200) });
+    if(req.kind === 'wholefair') await releaseWholeFairSpot(env, req.year, req.spot, token);
     return json({ error:'could not start checkout' }, 502, cors);
   }
 
@@ -426,7 +576,7 @@ async function handleCheckout(env, request){
     paymentLinkId: link.id,
     orderId: link.order_id || null
   });
-  return json({ url: link.url }, 200, cors);
+  return json({ url: link.url, holdMinutes: holdMinutes(req.kind) }, 200, cors);
 }
 
 async function handleWebhook(env, request){
@@ -479,11 +629,27 @@ async function handleWebhook(env, request){
     squareOrderId: payment.order_id || null,
     status: 'confirmed'
   };
+  /* A whole-fair spot is exclusive and expensive. If a different payment for
+     the same spot already landed - possible if this buyer paid after their own
+     hold had expired and someone else got in - do not overwrite that sale.
+     Flag this payment for a refund instead. */
+  if(hold.kind === 'wholefair'
+     && await wholeFairTakenByOther(env, hold.year, hold.spot, ref)){
+    await dbPatch(env, 'pending/' + ref, {
+      status: 'needs-refund',
+      note: 'another payment for this spot landed first - refund this one in Square'
+    });
+    return new Response('conflict - refund required', { status: 200 });
+  }
+
   await dbPut(env, 'reservations/' + ref, reservation);
   await dbPatch(env, 'pending/' + ref, { status:'confirmed' });
 
   if(hold.kind === 'wholefair'){
     await dbPut(env, 'public/wholefair/' + hold.year + '/' + hold.spot, 'sold');
+    /* Sale recorded. The lock has done its job and is no longer needed - a
+       'sold' spot is refused before the lock is ever consulted. */
+    await dbPut(env, 'locks/wholefair/' + hold.year + '/' + hold.spot, null);
   }else{
     const node = (await dbGet(env, 'public/availability/' + hold.date + '/' + hold.tier)) || {};
     await dbPatch(env, 'public/availability/' + hold.date + '/' + hold.tier, {
@@ -497,13 +663,25 @@ async function handleWebhook(env, request){
 /* Abandoned checkouts leave holds behind. Sweep them so the space frees up. */
 async function expireHolds(env){
   const holds = (await dbGet(env, 'pending')) || {};
-  const cutoff = Date.now() - HOLD_MINUTES * 60000;
+  const now = Date.now();
   const updates = {};
+  const release = [];
   Object.keys(holds).forEach(k=>{
     const h = holds[k];
-    if(h && h.status === 'held' && (h.createdAt || 0) < cutoff) updates[k + '/status'] = 'expired';
+    if(!h || h.status !== 'held') return;
+    if((h.createdAt || 0) >= now - holdMinutes(h.kind) * 60000) return;
+    updates[k + '/status'] = 'expired';
+    if(h.kind === 'wholefair' && h.year && h.spot){
+      release.push({ year: h.year, spot: h.spot, token: k });
+    }
   });
+
+  /* Mark expired first, then unlock. In that order a buyer arriving mid-sweep
+     can never see an open spot that still looks held by a live hold. */
   if(Object.keys(updates).length) await dbPatch(env, 'pending', updates);
+  for(let i = 0; i < release.length; i++){
+    await releaseWholeFairSpot(env, release[i].year, release[i].spot, release[i].token);
+  }
   return Object.keys(updates).length;
 }
 

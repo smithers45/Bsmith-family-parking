@@ -1,10 +1,10 @@
 {
   "rules": {
-    "//": "Deny everything by default; grant only the paths that need it.",
+    // Deny everything by default; grant only the paths that need it.
     ".read": false,
     ".write": false,
 
-    "//days": "The family logging app. Signed in with the shared account only.",
+    // The family logging app. Signed in with the shared account only.
     "days": {
       ".read": "auth != null",
       ".write": "auth != null"
@@ -22,20 +22,42 @@
       ".write": "auth != null"
     },
 
-    "//public": "Prices, caps and remaining availability. Anyone may read this; nobody may write it. The worker writes with a service account, which bypasses these rules.",
+    // Prices, caps and remaining availability. Anyone may read this;
+    // nobody may write it. The worker writes with a service account,
+    // which bypasses these rules.
+    //
+    // wholefair spots carry one of three values:
+    //   "open"  - bookable
+    //   "held"  - somebody is part-way through paying; locked to them
+    //   "sold"  - taken for the whole fair
     "public": {
       ".read": true,
       ".write": false
     },
 
-    "//reservations": "Confirmed bookings, including customer phone numbers and vehicles. Readable by the signed-in family app so it can show the day's arrivals. Never writable from a browser - only the signature-verified webhook creates these.",
+    // Confirmed bookings, including customer phone numbers and vehicles.
+    // Readable by the signed-in family app so it can show the day's
+    // arrivals. Never writable from a browser - only the
+    // signature-verified webhook creates these.
     "reservations": {
       ".read": "auth != null",
       ".write": false
     },
 
-    "//pending": "In-flight checkout holds. Nothing outside the worker has any business reading or writing these.",
+    // In-flight checkout holds. Nothing outside the worker has any
+    // business reading or writing these.
     "pending": {
+      ".read": false,
+      ".write": false
+    },
+
+    // Exclusive locks on the three whole-fair spots, as
+    // locks/wholefair/<year>/<spot> = { token, spot, year, expiresAt }.
+    // The worker takes these with a compare-and-set so two people can
+    // never claim the same spot. Private: the website reads the "held"
+    // state from public/wholefair instead, which reveals nothing about
+    // who is buying.
+    "locks": {
       ".read": false,
       ".write": false
     }
