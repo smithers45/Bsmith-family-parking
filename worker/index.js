@@ -744,13 +744,31 @@ async function handleHealth(env, url){
     configuredWebhookUrl: env.SQUARE_WEBHOOK_URL || null
   };
 
+  /* Describe the shape of what is actually stored, without ever revealing
+     it. Length, first and last character, and which field NAMES are present
+     is enough to tell a truncated paste from a double-quoted one from
+     entirely the wrong file - and field names are public schema, not
+     secrets. The real key file is a shade over 2,300 characters, so a much
+     smaller length here means the paste did not land whole. */
+  const rawSa = String(env.FIREBASE_SERVICE_ACCOUNT == null ? '' : env.FIREBASE_SERVICE_ACCOUNT);
+  checks.serviceAccountLength = rawSa.length;
+  checks.serviceAccountFirstChar = rawSa.slice(0, 1) || null;
+  checks.serviceAccountLastChar = rawSa.slice(-1) || null;
+  checks.serviceAccountMentionsPrivateKey = rawSa.indexOf('private_key') >= 0;
+  checks.serviceAccountMentionsClientEmail = rawSa.indexOf('client_email') >= 0;
+  checks.serviceAccountMentionsBeginKey = rawSa.indexOf('BEGIN PRIVATE KEY') >= 0;
+
   try{
-    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+    const sa = JSON.parse(rawSa);
     checks.serviceAccountParses = true;
-    checks.serviceAccountProject = sa.project_id || null;
+    checks.serviceAccountParsedAs = Array.isArray(sa) ? 'array' : (sa === null ? 'null' : typeof sa);
+    checks.serviceAccountFieldNames = (sa && typeof sa === 'object' && !Array.isArray(sa))
+      ? Object.keys(sa).slice(0, 25)
+      : null;
+    checks.serviceAccountProject = (sa && sa.project_id) || null;
     checks.serviceAccountHasPrivateKey =
-      !!(sa.private_key && sa.private_key.indexOf('BEGIN PRIVATE KEY') >= 0);
-    checks.serviceAccountEmail = sa.client_email || null;
+      !!(sa && sa.private_key && String(sa.private_key).indexOf('BEGIN PRIVATE KEY') >= 0);
+    checks.serviceAccountEmail = (sa && sa.client_email) || null;
   }catch(e){
     checks.serviceAccountParses = false;
     checks.serviceAccountError = String((e && e.message) || e).slice(0, 200);
