@@ -790,6 +790,44 @@ async function handleHealth(env, url){
     checks.databaseRead = 'FAILED: ' + String((e && e.message) || e).slice(0, 200);
   }
 
+  /* Ask Square who we are. GET /v2/locations is the cheapest authenticated
+     call available, and it answers both questions at once: whether the access
+     token is valid for the environment we are pointed at, and whether the
+     location id we are configured with exists in that environment.
+
+     Sandbox and production have entirely separate tokens and entirely
+     separate locations, and the tokens look alike, so a production token
+     with SQUARE_ENV=sandbox fails as a bare UNAUTHORIZED with nothing to
+     say why. Location ids are not secrets - they appear in browser-side
+     Square code - and this endpoint requires the preview token regardless. */
+  try{
+    const res = await fetch(squareBase(env) + '/v2/locations', {
+      headers: {
+        'Authorization': 'Bearer ' + env.SQUARE_ACCESS_TOKEN,
+        'Square-Version': '2026-05-20'
+      }
+    });
+    const data = await res.json();
+    checks.squareApiBase = squareBase(env);
+    if(res.status === 401){
+      checks.squareAuth = 'FAILED: token rejected by ' + squareBase(env)
+        + ' - usually a production token while SQUARE_ENV is sandbox, or the reverse';
+    }else if(!res.ok){
+      checks.squareAuth = 'FAILED: HTTP ' + res.status + ' '
+        + JSON.stringify(data.errors || data).slice(0, 200);
+    }else{
+      const locs = (data.locations || []).map(l=> ({
+        id: l.id, name: l.name, status: l.status, currency: l.currency
+      }));
+      checks.squareAuth = 'ok';
+      checks.squareLocationsAvailable = locs;
+      checks.squareLocationIdConfigured = env.SQUARE_LOCATION_ID || null;
+      checks.squareLocationIdIsValid = locs.some(l=> l.id === env.SQUARE_LOCATION_ID);
+    }
+  }catch(e){
+    checks.squareAuth = 'FAILED: ' + String((e && e.message) || e).slice(0, 200);
+  }
+
   return json({ missing, present, checks }, 200);
 }
 
