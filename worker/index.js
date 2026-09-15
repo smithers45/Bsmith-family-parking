@@ -933,28 +933,69 @@ async function handleSimulatePayment(env, request, url){
   if(!hold.orderId) return json({ error: 'that hold never got a Square order' }, 409);
   if(hold.status === 'confirmed') return json({ error: 'that hold is already confirmed' }, 409);
 
-  const res = await fetch(squareBase(env) + '/v2/payments', {
-    method: 'POST',
+  const sq = (path, method, body)=> fetch(squareBase(env) + path, {
+    method: method || 'GET',
     headers: {
       'Authorization': 'Bearer ' + env.SQUARE_ACCESS_TOKEN,
       'Content-Type': 'application/json',
       'Square-Version': '2026-05-20'
     },
-    body: JSON.stringify({
-      idempotency_key: 'sim-' + ref,
-      source_id: 'cnon:card-nonce-ok',
-      order_id: hold.orderId,
-      location_id: env.SQUARE_LOCATION_ID,
-      amount_money: { amount: Math.round(Number(hold.total) * 100), currency: 'USD' }
-    })
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+
+  /* A payment link leaves its order in DRAFT, and Square will not take a
+     payment against a draft. Move it to OPEN first.
+
+     Doing it this way, rather than making a standalone payment carrying the
+     hold id as reference_id, is deliberate: a real payment-link payment has
+     no reference_id of its own, so the webhook finds the booking by fetching
+     the order and reading its reference. Testing through a standalone
+     payment would exercise the branch that real traffic never takes and
+     leave the one it does take unproven. */
+  const steps = {};
+  const got = await sq('/v2/orders/' + hold.orderId);
+  const gotData = await got.json();
+  if(!got.ok){
+    return json({ error: 'could not read the Square order', detail: gotData.errors || gotData }, 502);
+  }
+  const order = gotData.order || {};
+  steps.orderStateBefore = order.state || null;
+  steps.orderReferenceId = order.reference_id || null;
+
+  if(order.state === 'DRAFT'){
+    const upd = await sq('/v2/orders/' + hold.orderId, 'PUT', {
+      idempotency_key: 'open-' + ref,
+      order: {
+        location_id: order.location_id || env.SQUARE_LOCATION_ID,
+        version: order.version,
+        state: 'OPEN'
+      }
+    });
+    const updData = await upd.json();
+    if(!upd.ok){
+      return json({ error: 'could not move the order out of DRAFT',
+                    detail: updData.errors || updData, steps }, 502);
+    }
+    steps.orderStateAfter = (updData.order && updData.order.state) || null;
+  }else{
+    steps.orderStateAfter = order.state || null;
+  }
+
+  const res = await sq('/v2/payments', 'POST', {
+    idempotency_key: 'sim-' + ref,
+    source_id: 'cnon:card-nonce-ok',
+    order_id: hold.orderId,
+    location_id: env.SQUARE_LOCATION_ID,
+    amount_money: { amount: Math.round(Number(hold.total) * 100), currency: 'USD' }
   });
   const data = await res.json();
   if(!res.ok){
     return json({ error: 'Square refused the test payment',
-                  detail: data.errors || data }, 502);
+                  detail: data.errors || data, steps }, 502);
   }
   return json({
     ok: true,
+    steps: steps,
     paidHold: ref,
     paymentId: (data.payment && data.payment.id) || null,
     paymentStatus: (data.payment && data.payment.status) || null,
