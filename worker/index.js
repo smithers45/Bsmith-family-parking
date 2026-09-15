@@ -886,6 +886,83 @@ async function handleHealth(env, url){
   return json({ missing, present, checks }, 200);
 }
 
+/* ---------- sandbox-only payment simulator ----------
+
+   Square's hosted payment links are display-only in the Sandbox: the card
+   fields and Pay button are disabled and the page says as much. That leaves
+   the single most important path in this system - payment lands, webhook
+   fires, reservation is written - unreachable from a browser, and therefore
+   untested until real money is involved.
+
+   This pays a held order using Square's test payment token. Square then
+   emits payment.updated exactly as it would for a real card, so the actual
+   webhook runs, against the actual signature, and writes the actual
+   reservation. It is the real path, not a mock of it.
+
+   Refused outright when SQUARE_ENV is production, and requires the preview
+   token besides. */
+async function handleSimulatePayment(env, request, url){
+  const supplied = clean(url.searchParams.get('preview'), 128);
+  if(!(env.PREVIEW_TOKEN && supplied && timingSafeEqual(supplied, env.PREVIEW_TOKEN))){
+    return new Response('not found', { status: 404 });
+  }
+  if(env.SQUARE_ENV === 'production'){
+    return json({ error: 'refused: this exists only for sandbox testing' }, 403);
+  }
+
+  let raw = {};
+  try{ raw = await request.json(); }catch(e){ raw = {}; }
+
+  let ref = clean(raw && raw.token, 80);
+  if(!ref){
+    /* No hold named, so take the newest live one - the usual case when
+       someone has just clicked through the page. */
+    const holds = (await dbGet(env, 'pending')) || {};
+    let newest = 0;
+    Object.keys(holds).forEach(k=>{
+      const h = holds[k];
+      if(h && h.status === 'held' && h.orderId && (h.createdAt || 0) > newest){
+        newest = h.createdAt; ref = k;
+      }
+    });
+    if(!ref) return json({ error: 'no live hold with a Square order to pay' }, 404);
+  }
+
+  const hold = await dbGet(env, 'pending/' + ref);
+  if(!hold) return json({ error: 'no such hold: ' + ref }, 404);
+  if(!hold.orderId) return json({ error: 'that hold never got a Square order' }, 409);
+  if(hold.status === 'confirmed') return json({ error: 'that hold is already confirmed' }, 409);
+
+  const res = await fetch(squareBase(env) + '/v2/payments', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + env.SQUARE_ACCESS_TOKEN,
+      'Content-Type': 'application/json',
+      'Square-Version': '2026-05-20'
+    },
+    body: JSON.stringify({
+      idempotency_key: 'sim-' + ref,
+      source_id: 'cnon:card-nonce-ok',
+      order_id: hold.orderId,
+      location_id: env.SQUARE_LOCATION_ID,
+      amount_money: { amount: Math.round(Number(hold.total) * 100), currency: 'USD' }
+    })
+  });
+  const data = await res.json();
+  if(!res.ok){
+    return json({ error: 'Square refused the test payment',
+                  detail: data.errors || data }, 502);
+  }
+  return json({
+    ok: true,
+    paidHold: ref,
+    paymentId: (data.payment && data.payment.id) || null,
+    paymentStatus: (data.payment && data.payment.status) || null,
+    next: 'Square should now send payment.updated to the webhook. Give it a few '
+        + 'seconds, then check whether the hold became confirmed and a reservation appeared.'
+  });
+}
+
 export default {
   async fetch(request, env){
     const url = new URL(request.url);
@@ -897,6 +974,13 @@ export default {
       catch(e){
         console.error('health failed:', (e && e.stack) || String(e));
         return json({ error:'health check itself failed', detail: String((e && e.message) || e).slice(0, 200) }, 500);
+      }
+    }
+    if(request.method === 'POST' && url.pathname === '/simulate-payment'){
+      try{ return await handleSimulatePayment(env, request, url); }
+      catch(e){
+        console.error('simulate-payment failed:', (e && e.stack) || String(e));
+        return json({ error:'simulate failed', detail: String((e && e.message) || e).slice(0, 200) }, 500);
       }
     }
     if(request.method === 'POST' && url.pathname === '/checkout'){
